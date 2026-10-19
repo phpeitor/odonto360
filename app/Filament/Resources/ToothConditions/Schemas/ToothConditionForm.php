@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ToothConditions\Schemas;
 
+use Filament\Forms\Components\ColorPicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Schema;
@@ -18,8 +19,10 @@ class ToothConditionForm
                 TextInput::make('label')
                     ->label('Nombre')
                     ->required(),
-                TextInput::make('color')
+                ColorPicker::make('color')
                     ->label('Color')
+                    ->hex()
+                    ->hexColor()
                     ->required(),
                 Select::make('target')
                     ->label('Aplicación')
