@@ -33,9 +33,9 @@ class AdminPanelProvider extends PanelProvider
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->login()
             ->colors([
-                'primary' => Color::Amber
+                'primary' => Color::Amber,
             ])
-            // ->sidebarCollapsibleOnDesktop()
+            ->sidebarCollapsibleOnDesktop()
             ->userMenu(false)
             ->maxContentWidth(Width::ScreenTwoExtraLarge)
             ->globalSearch(position: GlobalSearchPosition::Sidebar)
