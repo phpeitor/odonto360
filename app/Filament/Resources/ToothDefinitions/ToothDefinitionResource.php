@@ -21,6 +21,12 @@ class ToothDefinitionResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'fdi_code';
 
+    protected static ?string $navigationLabel = 'Definiciones dentales';
+
+    protected static ?string $modelLabel = 'definición dental';
+
+    protected static ?string $pluralModelLabel = 'definiciones dentales';
+
     public static function form(Schema $schema): Schema
     {
         return ToothDefinitionForm::configure($schema);

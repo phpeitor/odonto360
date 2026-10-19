@@ -20,16 +20,36 @@ class ToothConditionsTable
             ->defaultPaginationPageOption(5)
             ->columns([
                 TextColumn::make('code')
+                    ->label('Código')
                     ->searchable(),
                 TextColumn::make('label')
+                    ->label('Nombre')
                     ->searchable(),
                 ColorColumn::make('color')
+                    ->label('Color')
                     ->searchable(),
                 TextColumn::make('target')
+                    ->label('Aplicación')
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'face' => 'Cara',
+                        'tooth' => 'Diente',
+                        'both' => 'Ambos',
+                        default => $state,
+                    })
                     ->badge(),
                 TextColumn::make('category')
+                    ->label('Categoría')
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'sano' => 'Sano',
+                        'patologia' => 'Patología',
+                        'restauracion' => 'Restauración',
+                        'protesis' => 'Prótesis',
+                        'quirurgico' => 'Quirúrgico',
+                        default => $state,
+                    })
                     ->badge(),
                 TextColumn::make('sort_order')
+                    ->label('Orden')
                     ->numeric()
                     ->sortable(),
                 TextColumn::make('created_at')

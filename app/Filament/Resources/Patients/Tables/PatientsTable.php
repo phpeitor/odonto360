@@ -32,21 +32,23 @@ class PatientsTable
             ->columns([
                 TextColumn::make('first_name')
                     ->label('Nombre')
-                    ->getStateUsing(fn(Patient $record): string => $record->fullName())
+                    ->getStateUsing(fn (Patient $record): string => $record->fullName())
                     ->searchable(['first_name', 'last_name'])
                     ->action(
                         ViewAction::make('patient-tratamient')
                             ->modal()
-                            ->modalHeading(fn(Patient $record): string => $record->fullName())
-                            ->modalContent(fn(Patient $record): View => view('filament.patients.dental-treatment', ['patient' => $record]))
+                            ->modalHeading(fn (Patient $record): string => $record->fullName())
+                            ->modalContent(fn (Patient $record): View => view('filament.patients.dental-treatment', ['patient' => $record]))
                     )
                     ->color('amber'),
-                TextColumn::make('document_number'),
+                TextColumn::make('document_number')
+                    ->label('Documento'),
                 // TextColumn::make('birth_date'),
                 TextColumn::make('sex')
+                    ->label('Sexo')
                     ->badge()
-                    ->formatStateUsing(fn(PatientSex $state): string => '')
-                    ->tooltip(fn(PatientSex $state): string => $state->getLabel())
+                    ->formatStateUsing(fn (PatientSex $state): string => '')
+                    ->tooltip(fn (PatientSex $state): string => $state->getLabel())
                     ->alignLeft(),
                 // TextColumn::make('phone'),
                 // TextColumn::make('email'),
@@ -65,7 +67,7 @@ class PatientsTable
                     ->modalHeading('Historial de tratamientos')
                     ->modalSubmitAction(false)
                     // ->modalHeading(fn(Patient $record): string => $record->fullName())
-                    ->fillForm(fn(Patient $record): array => [
+                    ->fillForm(fn (Patient $record): array => [
                         'document_number' => $record->document_number,
                         'birth_date' => $record->birth_date,
                         'sex' => $record->sex,
@@ -80,24 +82,24 @@ class PatientsTable
                                     ->label('DNI')
                                     ->disabled(),
                                 DatePicker::make('birth_date')
-                                    ->label('Fecha nacimiento')
+                                    ->label('Fecha de nacimiento')
                                     ->native(false)
                                     ->disabled(),
                                 Select::make('sex')
-                                    ->label('Genero')
+                                    ->label('Género')
                                     ->options(PatientSex::class)
                                     ->native(false)
                                     ->disabled(),
                                 TextInput::make('phone')
-                                    ->label('Telefono')
+                                    ->label('Teléfono')
                                     ->disabled(),
                                 TextInput::make('email')
-                                    ->label('Correo electronico')
+                                    ->label('Correo electrónico')
                                     ->disabled(),
                             ]),
                         ViewField::make('view')
                             ->view('filament.patients.dental-treatment')
-                            ->viewData(fn(Patient $record): array => ['patient' => $record]),
+                            ->viewData(fn (Patient $record): array => ['patient' => $record]),
                     ]),
                 ActionGroup::make([
                     EditAction::make(),

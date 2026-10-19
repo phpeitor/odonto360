@@ -13,31 +13,41 @@ class ToothDefinitionForm
         return $schema
             ->components([
                 TextInput::make('fdi_code')
+                    ->label('Código FDI')
                     ->required()
                     ->numeric(),
                 Select::make('dentition')
-                    ->options(['adult' => 'Adult', 'child' => 'Child'])
+                    ->label('Dentición')
+                    ->options(['adult' => 'Adulto', 'child' => 'Infantil'])
                     ->required(),
                 Select::make('arch')
-                    ->options(['upper' => 'Upper', 'lower' => 'Lower'])
+                    ->label('Arcada')
+                    ->options(['upper' => 'Superior', 'lower' => 'Inferior'])
                     ->required(),
                 TextInput::make('quadrant')
+                    ->label('Cuadrante')
                     ->required()
                     ->numeric(),
                 TextInput::make('position')
+                    ->label('Posición')
                     ->required()
                     ->numeric(),
                 TextInput::make('tooth_type')
+                    ->label('Tipo de diente')
                     ->required(),
                 TextInput::make('root_count')
+                    ->label('Cantidad de raíces')
                     ->required()
                     ->numeric(),
                 TextInput::make('universal_number')
+                    ->label('Número universal')
                     ->numeric()
                     ->default(null),
                 TextInput::make('universal_letter')
+                    ->label('Letra universal')
                     ->default(null),
                 TextInput::make('display_order')
+                    ->label('Orden de visualización')
                     ->required()
                     ->numeric(),
             ]);

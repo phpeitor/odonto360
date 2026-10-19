@@ -21,6 +21,12 @@ class ToothConditionResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'code';
 
+    protected static ?string $navigationLabel = 'Condiciones dentales';
+
+    protected static ?string $modelLabel = 'condición dental';
+
+    protected static ?string $pluralModelLabel = 'condiciones dentales';
+
     public static function form(Schema $schema): Schema
     {
         return ToothConditionForm::configure($schema);

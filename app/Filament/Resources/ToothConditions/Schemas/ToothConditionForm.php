@@ -13,25 +13,31 @@ class ToothConditionForm
         return $schema
             ->components([
                 TextInput::make('code')
+                    ->label('Código')
                     ->required(),
                 TextInput::make('label')
+                    ->label('Nombre')
                     ->required(),
                 TextInput::make('color')
+                    ->label('Color')
                     ->required(),
                 Select::make('target')
-                    ->options(['face' => 'Face', 'tooth' => 'Tooth', 'both' => 'Both'])
+                    ->label('Aplicación')
+                    ->options(['face' => 'Cara', 'tooth' => 'Diente', 'both' => 'Ambos'])
                     ->required(),
                 Select::make('category')
+                    ->label('Categoría')
                     ->options([
                         'sano' => 'Sano',
-                        'patologia' => 'Patologia',
-                        'restauracion' => 'Restauracion',
-                        'protesis' => 'Protesis',
-                        'quirurgico' => 'Quirurgico',
+                        'patologia' => 'Patología',
+                        'restauracion' => 'Restauración',
+                        'protesis' => 'Prótesis',
+                        'quirurgico' => 'Quirúrgico',
                     ])
                     ->default('patologia')
                     ->required(),
                 TextInput::make('sort_order')
+                    ->label('Orden')
                     ->required()
                     ->numeric()
                     ->default(0),

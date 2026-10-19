@@ -16,16 +16,23 @@ class PatientForm
     {
         return $schema
             ->components([
-                TextInput::make('first_name'),
-                TextInput::make('last_name'),
-                TextInput::make('document_number'),
+                TextInput::make('first_name')
+                    ->label('Nombre'),
+                TextInput::make('last_name')
+                    ->label('Apellidos'),
+                TextInput::make('document_number')
+                    ->label('Documento'),
                 DatePicker::make('birth_date')
+                    ->label('Fecha de nacimiento')
                     ->native(false),
                 Select::make('sex')
+                    ->label('Sexo')
                     ->options(PatientSex::class)
                     ->native(false),
-                TextInput::make('phone'),
+                TextInput::make('phone')
+                    ->label('Teléfono'),
                 TextInput::make('email')
+                    ->label('Correo electrónico')
                     ->email(),
                 ViewField::make('view')
                     ->view('filament.patients.odontogram-board')
