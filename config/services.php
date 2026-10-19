@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'ubuntux' => [
+        'url' => env('UBUNTUX_API_URL'),
+    ],
+
 ];
