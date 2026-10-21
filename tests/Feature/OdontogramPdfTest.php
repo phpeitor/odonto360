@@ -45,3 +45,15 @@ it('flows long history and notes onto extra pages instead of overlapping', funct
     expect($pdf)->toStartWith('%PDF')
         ->and(preg_match_all('#/Type\s*/Page\b#', $pdf))->toBeGreaterThan(2);
 });
+
+it('includes the per-tooth notes in the PDF', function (): void {
+    $odontogram = Patient::factory()->create()->odontogram()->create(['dentition' => 'adult', 'numbering_system' => 'fdi']);
+    $odontogram->teeth()->create(['fdi_code' => 11, 'notes' => 'Sensibilidad al frío; controlar en 15 días.']);
+    $odontogram->teeth()->create(['fdi_code' => 36, 'notes' => '   ']);
+
+    $withNotes = (new OdontogramPdfExport)->generate($odontogram->load('patient'));
+    $odontogram->teeth()->update(['notes' => null]);
+    $withoutNotes = (new OdontogramPdfExport)->generate($odontogram->fresh()->load('patient'));
+
+    expect(strlen($withNotes))->toBeGreaterThan(strlen($withoutNotes));
+});

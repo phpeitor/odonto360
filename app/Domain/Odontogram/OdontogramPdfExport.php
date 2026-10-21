@@ -33,7 +33,7 @@ final class OdontogramPdfExport
     private const PAGE_WIDTH = 297.0;
 
     /** Límite inferior del contenido; debajo va el pie de página. */
-    private const BOTTOM = 190.0;
+    private const BOTTOM = 193.0;
 
     private const TOOTH_WIDTH = 12.0;
 
@@ -96,6 +96,8 @@ final class OdontogramPdfExport
         $this->renderLegend();
         $this->renderFindings($odontogram);
         $this->renderHistory($odontogram);
+
+        $this->renderToothNotes($odontogram);
 
         if (trim((string) $odontogram->notes) !== '') {
             $this->renderNotes($odontogram);
@@ -369,8 +371,9 @@ final class OdontogramPdfExport
     private function renderHistory(Odontogram $odontogram): void
     {
         $log = $odontogram->treatmentLog()
-            ->with(['condition', 'user'])
+            ->with(['condition', 'user', 'voidedBy'])
             ->orderByDesc('registered_at')
+            ->orderByDesc('id')
             ->get();
 
         if ($log->isEmpty()) {
@@ -403,7 +406,9 @@ final class OdontogramPdfExport
                 $faceLabel,
                 $entry->condition?->label ?? '—',
                 $entry->user?->name ?? '—',
-                (string) ($entry->observation ?? ''),
+                trim(($entry->voided_at
+                    ? 'ANULADO'.($entry->voidedBy ? " por {$entry->voidedBy->name}" : '')." el {$entry->voided_at->format('d/m/Y H:i')}. "
+                    : '').($entry->action === 'clear' ? 'Borrado. ' : '').($entry->observation ?? '')),
             ];
 
             $wrapped = [];
@@ -411,7 +416,7 @@ final class OdontogramPdfExport
                 $wrapped[$c] = $this->wrap($text, $columns[$c][2] - 3, $this->font, 8);
             }
 
-            return ['cells' => $wrapped, 'height' => max(array_map('count', $wrapped)) * 3.8 + 2.4];
+            return ['voided' => $entry->voided_at !== null, 'cells' => $wrapped, 'height' => max(array_map('count', $wrapped)) * 3.8 + 2.4];
         })->all();
 
         $this->sectionHeader('Historial de tratamientos', 6.4 + $rows[0]['height']);
@@ -428,7 +433,7 @@ final class OdontogramPdfExport
 
             foreach ($row['cells'] as $c => $textLines) {
                 foreach ($textLines as $n => $line) {
-                    $this->write($columns[$c][1] + 1.5, $this->y + 4 + $n * 3.8, $line, $this->font, 8, self::INK);
+                    $this->write($columns[$c][1] + 1.5, $this->y + 4 + $n * 3.8, $line, $this->font, 8, $row['voided'] ? self::MUTED : self::INK);
                 }
             }
 
@@ -450,14 +455,51 @@ final class OdontogramPdfExport
         $this->y += 6.4;
     }
 
+    /** Notas escritas en cada pieza (botón «N» del tablero). */
+    private function renderToothNotes(Odontogram $odontogram): void
+    {
+        $notes = $odontogram->teeth()
+            ->whereNotNull('notes')
+            ->orderBy('fdi_code')
+            ->get()
+            ->filter(fn (OdontogramTooth $tooth): bool => trim((string) $tooth->notes) !== '');
+
+        if ($notes->isEmpty()) {
+            return;
+        }
+
+        $this->sectionHeader('Notas por pieza', 12);
+
+        foreach ($notes as $tooth) {
+            $lines = $this->wrap(preg_replace('/\s+/u', ' ', (string) $tooth->notes), self::CONTENT_WIDTH - 14, $this->font, 9);
+
+            foreach ($lines as $n => $line) {
+                if ($this->ensureSpace(5)) {
+                    $this->sectionHeader('Notas por pieza (continuación)', 10);
+                }
+
+                if ($n === 0) {
+                    $this->write(self::MARGIN, $this->y + 3.4, (string) $tooth->fdi_code, $this->boldFont, 9, self::ACCENT);
+                }
+
+                $this->write(self::MARGIN + 14, $this->y + 3.4, $line, $this->font, 9, self::INK);
+                $this->y += 4.6;
+            }
+
+            $this->y += 1.6;
+        }
+
+        $this->y += 3;
+    }
+
     private function renderNotes(Odontogram $odontogram): void
     {
-        $this->sectionHeader('Notas', 16);
+        $this->sectionHeader('Notas generales del examen', 16);
 
         foreach (explode("\n", (string) $odontogram->notes) as $paragraph) {
             foreach ($this->wrap(trim($paragraph), self::CONTENT_WIDTH, $this->font, 9) as $line) {
                 if ($this->ensureSpace(5)) {
-                    $this->sectionHeader('Notas (continuación)', 10);
+                    $this->sectionHeader('Notas generales (continuación)', 10);
                 }
 
                 $this->write(self::MARGIN, $this->y + 3.4, $line, $this->font, 9, self::INK);
