@@ -15,6 +15,7 @@ class OdontogramTreatmentLog extends Model
         'face',
         'condition_id',
         'observation',
+        'user_id',
         'registered_at',
     ];
 
@@ -26,6 +27,12 @@ class OdontogramTreatmentLog extends Model
     public function odontogram(): BelongsTo
     {
         return $this->belongsTo(Odontogram::class);
+    }
+
+    /** Usuario que registró el cambio (null en registros anteriores a este campo). */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     public function condition(): BelongsTo

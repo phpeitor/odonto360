@@ -157,7 +157,12 @@
                     @if ($entry->pending ?? false)
                         <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Sin guardar</span>
                     @endif
-                    <span class="ml-auto text-xs text-gray-400">{{ $entry->registered_at->format('d/m/Y H:i') }}</span>
+                    <span class="ml-auto text-xs text-gray-400">
+                        @if ($entry->user?->name)
+                            {{ $entry->user->name }} ·
+                        @endif
+                        {{ $entry->registered_at->format('d/m/Y H:i') }}
+                    </span>
                 </div>
             @empty
                 <p class="text-sm text-gray-500">Sin historial registrado todavía.</p>
