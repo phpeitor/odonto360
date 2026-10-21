@@ -4,12 +4,14 @@ namespace App\Livewire;
 
 use App\Domain\Odontogram\ToothNumbering;
 use App\Domain\Odontogram\ToothSvgBuilder;
+use App\Domain\Odontogram\ZoneState;
 use App\Models\Odontogram;
 use App\Models\OdontogramTooth;
 use App\Models\OdontogramToothFace;
 use App\Models\Patient;
 use App\Models\ToothCondition;
 use App\Models\ToothDefinition;
+use Filament\Notifications\Notification;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -32,13 +34,9 @@ class OdontogramBoard extends Component
 
     public ?string $activeCondition = null;
 
-    public string $saveMessage = '';
-
     public ?string $notes = null;
 
     public ?string $examinedAt = null;
-
-    protected $listeners = ['clearSaveMessage'];
 
     /** Cambios pendientes de marcar en el tablero que aún no se han persistido (ver `save`). */
     public array $pending = [];
@@ -158,8 +156,9 @@ class OdontogramBoard extends Component
     {
         $entries = $this->odontogram
             ->treatmentLog()
-            ->with(['condition', 'user'])
+            ->with(['condition', 'user', 'voidedBy'])
             ->orderByDesc('registered_at')
+            ->orderByDesc('id')
             ->get();
 
         foreach ($this->pending as $action) {
@@ -170,6 +169,8 @@ class OdontogramBoard extends Component
             $entries->prepend((object) [
                 'fdi_code' => $action['fdi_code'],
                 'face' => $action['face'],
+                'action' => $action['action'],
+                'voided_at' => null,
                 'condition' => $condition,
                 'observation' => $action['observation'],
                 'user' => Auth::user(),
@@ -324,49 +325,24 @@ class OdontogramBoard extends Component
             ? ToothCondition::where('code', $action['condition_code'])->first()
             : null;
 
+        $previousConditionId = ZoneState::conditionId($this->odontogram, $action['fdi_code'], $action['face']);
+
         if ($action['action'] === 'apply') {
-            $this->applyToZone($action['fdi_code'], $action['face'], $condition);
+            ZoneState::set($this->odontogram, $action['fdi_code'], $action['face'], $condition);
         } elseif ($action['action'] === 'clear') {
-            $this->clearZone($action['fdi_code'], $action['face']);
+            ZoneState::set($this->odontogram, $action['fdi_code'], $action['face'], null);
         }
 
         $this->odontogram->treatmentLog()->create([
             'fdi_code' => $action['fdi_code'],
             'face' => $action['face'],
+            'action' => $action['action'],
             'condition_id' => $condition?->id,
+            'previous_condition_id' => $previousConditionId,
             'observation' => $action['observation'],
             'user_id' => Auth::id(),
             'registered_at' => now(),
         ]);
-    }
-
-    private function applyToZone(int $fdiCode, ?string $face, ToothCondition $condition): void
-    {
-        $tooth = $this->odontogram->teeth()->firstOrCreate(['fdi_code' => $fdiCode]);
-
-        if ($face === null) {
-            $tooth->update(['whole_condition_id' => $condition->id]);
-
-            return;
-        }
-
-        OdontogramToothFace::updateOrCreate(
-            ['odontogram_tooth_id' => $tooth->id, 'face' => $face],
-            ['condition_id' => $condition->id]
-        );
-    }
-
-    private function clearZone(int $fdiCode, ?string $face): void
-    {
-        $tooth = $this->odontogram->teeth()->firstOrCreate(['fdi_code' => $fdiCode]);
-
-        if ($face === null) {
-            $tooth->update(['whole_condition_id' => null]);
-
-            return;
-        }
-
-        $tooth->faces()->where('face', $face)->delete();
     }
 
     public function openObservation(int $fdiCode, ?string $face, ?string $conditionCode): void
@@ -465,7 +441,9 @@ class OdontogramBoard extends Component
     /** Persiste de forma atómica todos los cambios pendientes y registra la bitácora. */
     public function save(): void
     {
-        if (count($this->pending) > 0) {
+        $changes = count($this->pending);
+
+        if ($changes > 0) {
             DB::transaction(function (): void {
                 foreach ($this->pending as $action) {
                     $this->applyPendingAction($action);
@@ -479,16 +457,16 @@ class OdontogramBoard extends Component
             'examined_at' => $this->examinedAt,
         ]);
         $this->odontogram->touch();
-        $this->saveMessage = 'Guardado ✓';
         $this->dispatch('odontogram-saved');
-        $this->dispatch('schedule-clear-save-message');
+
+        Notification::make()
+            ->title('Odontograma guardado')
+            ->body($changes > 0 ? "Se registraron {$changes} cambio(s) en el historial." : 'Notas y fecha de examen actualizadas.')
+            ->success()
+            ->duration(4000)
+            ->send();
 
         unset($this->teethByCode, $this->findings, $this->history);
-    }
-
-    public function clearSaveMessage(): void
-    {
-        $this->saveMessage = '';
     }
 
     public function openToothNote(int $fdiCode): void
@@ -507,6 +485,12 @@ class OdontogramBoard extends Component
 
         $tooth = $this->odontogram->teeth()->firstOrCreate(['fdi_code' => $this->toothNoteFdiCode]);
         $tooth->update(['notes' => trim($this->toothNoteText) ?: null]);
+
+        Notification::make()
+            ->title("Nota de la pieza {$this->toothNoteFdiCode} guardada")
+            ->success()
+            ->duration(3000)
+            ->send();
 
         $this->showToothNoteModal = false;
         $this->toothNoteFdiCode = null;

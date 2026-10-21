@@ -1,4 +1,4 @@
-<div x-data="{ hover: null }" x-on:schedule-clear-save-message.window="setTimeout(() => $wire.clearSaveMessage(), 3000)" x-on:beforeunload.window="if ($wire.get('pending').length > 0) event.preventDefault()" x-on:open-pdf.window="window.location.href = event.detail.url" class="space-y-6">
+<div x-data="{ hover: null }" x-on:beforeunload.window="if ($wire.get('pending').length > 0) event.preventDefault()" x-on:open-pdf.window="window.location.href = event.detail.url" class="space-y-6">
 
     {{-- Toolbar: paciente, dentición, numeración, guardar --}}
     <div class="flex flex-wrap items-center justify-between gap-4">
@@ -142,22 +142,31 @@
         <div class="border-b border-gray-200 px-4 py-3 text-sm font-semibold">Historial de tratamientos</div>
         <div class="space-y-2 p-4">
             @forelse ($this->history as $entry)
-                <div class="flex flex-wrap items-center gap-2 text-sm">
-                    <span class="font-mono font-semibold">{{ $entry->fdi_code }}</span>
-                    <span class="text-xs text-gray-500">{{ $this->faceLabel($entry->face) }}</span>
+                @php($struck = $entry->voided_at ? 'text-gray-400 line-through' : '')
+                <div @class(['flex flex-wrap items-center gap-2 text-sm', 'text-gray-400' => $entry->voided_at])>
+                    <span class="font-mono font-semibold {{ $struck }}">{{ $entry->fdi_code }}</span>
+                    <span class="text-xs text-gray-500 {{ $struck }}">{{ $this->faceLabel($entry->face) }}</span>
                     @if ($entry->condition)
-                        <span class="inline-flex items-center gap-1.5 text-xs">
+                        <span class="inline-flex items-center gap-1.5 text-xs {{ $struck }}">
                             <span class="h-2.5 w-2.5 rounded-full" style="background: {{ $entry->condition->color }}"></span>
                             {{ $entry->condition->label }}
                         </span>
                     @endif
                     @if ($entry->observation)
-                        <span class="text-xs italic text-gray-600">“{{ $entry->observation }}”</span>
+                        <span @class(['text-xs italic', 'text-gray-600' => ! $entry->voided_at, 'text-gray-400 line-through' => $entry->voided_at])>“{{ $entry->observation }}”</span>
+                    @endif
+                    @if (($entry->action ?? null) === 'clear')
+                        <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">Borrado</span>
+                    @endif
+                    @if ($entry->voided_at)
+                        <span class="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                            Anulado{{ $entry->voidedBy?->name ? ' por '.$entry->voidedBy->name : '' }}
+                        </span>
                     @endif
                     @if ($entry->pending ?? false)
                         <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Sin guardar</span>
                     @endif
-                    <span class="ml-auto text-xs text-gray-400">
+                    <span class="ml-auto text-xs text-gray-400 {{ $struck }}">
                         @if ($entry->user?->name)
                             {{ $entry->user->name }} ·
                         @endif
@@ -170,9 +179,7 @@
         </div>
     </div>
 
-    @if ($saveMessage)
-        <div wire:transition class="text-xs font-semibold text-success-600">{{ $saveMessage }}</div>
-    @elseif (count($pending) > 0)
+    @if (count($pending) > 0)
         <div wire:transition class="flex items-center gap-3 text-xs font-semibold text-amber-600">
             <span>Hay {{ count($pending) }} cambio(s) sin guardar</span>
             <button type="button" wire:click="undoPending"
