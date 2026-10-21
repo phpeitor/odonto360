@@ -10,22 +10,23 @@
 
         <div class="flex flex-wrap items-center gap-3">
             <div class="inline-flex overflow-hidden rounded-lg border border-gray-300">
-                <button type="button" wire:click="setDentition('adult')"
-                    @class([
-                        'px-3 py-1.5 text-xs font-semibold transition-colors',
-                        'bg-primary-600 text-white' => $dentition === 'adult',
-                        'bg-white text-gray-700 hover:bg-gray-50' => $dentition !== 'adult',
-                    ])>Adulto · 32</button>
-                <span @if ($patient->isAdult()) x-tooltip="{ content: 'Paciente mayor de edad: solo dentición adulta', theme: $store.theme }" @endif class="inline-flex">
-                    <button type="button" wire:click="setDentition('child')"
-                        @disabled($patient->isAdult())
-                        @class([
-                            'border-l border-gray-300 px-3 py-1.5 text-xs font-semibold transition-colors',
-                            'bg-primary-600 text-white' => $dentition === 'child',
-                            'bg-white text-gray-700 hover:bg-gray-50' => $dentition !== 'child' && ! $patient->isAdult(),
-                            'cursor-not-allowed bg-gray-100 text-gray-400' => $patient->isAdult(),
-                        ])>Niño · 20</button>
-                </span>
+                @foreach ([
+                    'adult' => ['label' => 'Adulto · 32', 'blocked' => 'Paciente menor de 6 años: solo dentición infantil'],
+                    'child' => ['label' => 'Niño · 20', 'blocked' => 'Paciente mayor de edad: solo dentición adulta'],
+                ] as $option => $meta)
+                    @php($allowed = $patient->allowsDentition($option))
+                    <span @unless ($allowed) x-tooltip="{ content: '{{ $meta['blocked'] }}', theme: $store.theme }" @endunless class="inline-flex">
+                        <button type="button" wire:click="setDentition('{{ $option }}')"
+                            @disabled(! $allowed)
+                            @class([
+                                'px-3 py-1.5 text-xs font-semibold transition-colors',
+                                'border-l border-gray-300' => $option === 'child',
+                                'bg-primary-600 text-white' => $dentition === $option,
+                                'bg-white text-gray-700 hover:bg-gray-50' => $dentition !== $option && $allowed,
+                                'cursor-not-allowed bg-gray-100 text-gray-400' => ! $allowed && $dentition !== $option,
+                            ])>{{ $meta['label'] }}</button>
+                    </span>
+                @endforeach
             </div>
 
             <div class="inline-flex overflow-hidden rounded-lg border border-gray-300">
