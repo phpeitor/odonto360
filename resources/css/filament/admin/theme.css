@@ -50,3 +50,46 @@
 .fi-btn[class*="fi-color-"]:is([class*="fi-bg-color-"]) svg {
     color: inherit !important;
 }
+.brand-tooth {
+    display: inline-flex;
+    width: 2rem;
+    height: 2rem;
+    animation: brand-tooth-breathe 3.6s ease-in-out infinite;
+}
+
+.brand-tooth svg {
+    width: 100%;
+    height: 100%;
+}
+
+@keyframes brand-tooth-breathe {
+    0%, 100% { transform: translateY(0) scale(1); filter: drop-shadow(0 0 0 transparent); }
+    50% { transform: translateY(-1.5px) scale(1.06); filter: drop-shadow(0 2px 4px color-mix(in oklab, currentColor 35%, transparent)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .brand-tooth { animation: none; }
+}
+
+.fi-topbar-open-collapse-sidebar-btn,
+.fi-topbar-close-collapse-sidebar-btn {
+    @apply rounded-lg text-gray-500 transition-colors duration-200 hover:bg-primary-50 hover:text-primary-600 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-primary-400;
+}
+
+.fi-topbar-open-collapse-sidebar-btn .fi-icon,
+.fi-topbar-close-collapse-sidebar-btn .fi-icon {
+    @apply transition-transform duration-200;
+}
+
+.fi-topbar-open-collapse-sidebar-btn:hover .fi-icon {
+    transform: translateX(2px);
+}
+
+.fi-topbar-close-collapse-sidebar-btn:hover .fi-icon {
+    transform: translateX(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fi-topbar-open-collapse-sidebar-btn .fi-icon,
+    .fi-topbar-close-collapse-sidebar-btn .fi-icon { transition: none; transform: none !important; }
+}

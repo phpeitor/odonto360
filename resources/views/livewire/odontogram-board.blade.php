@@ -16,15 +16,16 @@
                         'bg-primary-600 text-white' => $dentition === 'adult',
                         'bg-white text-gray-700 hover:bg-gray-50' => $dentition !== 'adult',
                     ])>Adulto · 32</button>
-                <button type="button" wire:click="setDentition('child')"
-                    @disabled($patient->isAdult())
-                    @if ($patient->isAdult()) title="Paciente mayor de edad: solo dentición adulta" @endif
-                    @class([
-                        'border-l border-gray-300 px-3 py-1.5 text-xs font-semibold transition-colors',
-                        'bg-primary-600 text-white' => $dentition === 'child',
-                        'bg-white text-gray-700 hover:bg-gray-50' => $dentition !== 'child' && ! $patient->isAdult(),
-                        'cursor-not-allowed bg-gray-100 text-gray-400' => $patient->isAdult(),
-                    ])>Niño · 20</button>
+                <span @if ($patient->isAdult()) x-tooltip="{ content: 'Paciente mayor de edad: solo dentición adulta', theme: $store.theme }" @endif class="inline-flex">
+                    <button type="button" wire:click="setDentition('child')"
+                        @disabled($patient->isAdult())
+                        @class([
+                            'border-l border-gray-300 px-3 py-1.5 text-xs font-semibold transition-colors',
+                            'bg-primary-600 text-white' => $dentition === 'child',
+                            'bg-white text-gray-700 hover:bg-gray-50' => $dentition !== 'child' && ! $patient->isAdult(),
+                            'cursor-not-allowed bg-gray-100 text-gray-400' => $patient->isAdult(),
+                        ])>Niño · 20</button>
+                </span>
             </div>
 
             <div class="inline-flex overflow-hidden rounded-lg border border-gray-300">
@@ -84,7 +85,7 @@
     </div>
 
     {{-- Arco superior --}}
-    <div class="flex justify-center overflow-x-auto pb-1">
+    <div class="flex justify-center overflow-x-auto px-2 pb-1 pt-3">
         <div class="flex gap-1 sm:gap-2">
             @foreach ($this->definitions['upper'] ?? [] as $definition)
                 <div class="tooth-wrap group relative">
@@ -92,7 +93,7 @@
                     <button type="button"
                         wire:click="openToothNote({{ $definition->fdi_code }})"
                         class="absolute -top-1 -right-1 hidden h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[8px] font-bold text-white shadow group-hover:flex"
-                        title="Nota del diente">N</button>
+                        x-tooltip="{ content: 'Nota del diente', theme: $store.theme }">N</button>
                 </div>
             @endforeach
         </div>
@@ -105,7 +106,7 @@
     </div>
 
     {{-- Arco inferior --}}
-    <div class="flex justify-center overflow-x-auto pt-1">
+    <div class="flex justify-center overflow-x-auto px-2 pt-3">
         <div class="flex gap-1 sm:gap-2">
             @foreach ($this->definitions['lower'] ?? [] as $definition)
                 <div class="tooth-wrap group relative">
@@ -113,7 +114,7 @@
                     <button type="button"
                         wire:click="openToothNote({{ $definition->fdi_code }})"
                         class="absolute -top-1 -right-1 hidden h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[8px] font-bold text-white shadow group-hover:flex"
-                        title="Nota del diente">N</button>
+                        x-tooltip="{ content: 'Nota del diente', theme: $store.theme }">N</button>
                 </div>
             @endforeach
         </div>
