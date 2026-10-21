@@ -1,4 +1,8 @@
-# Odontograma — Guía de Implementación Completa del Sistema
+# Odonto360
+
+<a href="https://www.instagram.com/amvsoft.tech/">
+  <img src="https://cdn.dribbble.com/userupload/28019288/file/original-6a5567517afab646574e2e12039601d7.png" alt="Instagram" width="800">
+</a>
 
 Sistema de odontograma dental construido con **Laravel 13**, **Filament v5**, **Livewire v4** y **Tailwind v4**. Permite a los odontólogos registrar el estado dental de cada paciente mediante un tablero interactivo con SVG, persistiendo tratamientos y generando exportaciones PDF.
 
