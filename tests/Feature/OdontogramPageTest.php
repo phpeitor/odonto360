@@ -2,7 +2,9 @@
 
 use App\Enum\PatientSex;
 use App\Filament\Pages\OdontogramBoard;
+use App\Filament\Resources\Patients\PatientResource;
 use App\Models\Patient;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
@@ -93,4 +95,60 @@ it('allows switching a minor patient to child dentition', function (): void {
     Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $patient])
         ->call('setDentition', 'child')
         ->assertSet('dentition', 'child');
+});
+
+it('finds patients in the global search by name, document and phone', function (): void {
+    Filament\Facades\Filament::setCurrentPanel('admin');
+    $this->actingAs(User::factory()->create());
+
+    Patient::factory()->create([
+        'first_name' => 'Alejandro',
+        'last_name' => 'Montalván',
+        'document_number' => '46798772',
+        'phone' => '942890820',
+    ]);
+
+    foreach (['alej', 'montalv', '46798772', '942890820'] as $term) {
+        $results = PatientResource::getGlobalSearchResults($term);
+
+        expect($results)->toHaveCount(1)
+            ->and($results->first()->title)->toBe('Alejandro Montalván');
+    }
+
+    expect(PatientResource::getGlobalSearchResults('zzzz'))->toHaveCount(0);
+});
+
+it('ignores unknown dentition and numbering values', function (): void {
+    $patient = Patient::factory()->create(['birth_date' => now()->subYears(8)->toDateString()]);
+
+    Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $patient])
+        ->call('setDentition', 'hacked')
+        ->assertSet('dentition', 'adult')
+        ->call('setNumberingSystem', 'hacked')
+        ->assertSet('numberingSystem', 'fdi')
+        ->call('setNumberingSystem', 'universal')
+        ->assertSet('numberingSystem', 'universal');
+
+    expect($patient->odontogram()->first()->only(['dentition', 'numbering_system']))
+        ->toBe(['dentition' => 'adult', 'numbering_system' => 'universal']);
+});
+
+it('blocks the adult dentition for patients under 6 and starts them on child', function (): void {
+    $this->travelTo('2026-10-21');
+    $toddler = Patient::factory()->create(['birth_date' => '2021-10-22']);
+
+    Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $toddler])
+        ->assertSet('dentition', 'child')
+        ->call('setDentition', 'adult')
+        ->assertSet('dentition', 'child')
+        ->assertSee('Paciente menor de 6 años: solo dentición infantil');
+
+    $sixYearsOld = Patient::factory()->create(['birth_date' => '2020-10-21']);
+
+    Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $sixYearsOld])
+        ->assertSet('dentition', 'adult')
+        ->call('setDentition', 'child')
+        ->assertSet('dentition', 'child')
+        ->call('setDentition', 'adult')
+        ->assertSet('dentition', 'adult');
 });

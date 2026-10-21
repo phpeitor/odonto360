@@ -19,6 +19,8 @@ use Livewire\Component;
 
 class OdontogramBoard extends Component
 {
+    private const NUMBERING_SYSTEMS = ['fdi', 'universal'];
+
     public Patient $patient;
 
     public ?Odontogram $odontogram = null;
@@ -59,6 +61,7 @@ class OdontogramBoard extends Component
     public function mount(Patient $patient): void
     {
         $this->patient = $patient;
+        $this->dentition = $patient->allowsDentition('adult') ? 'adult' : 'child';
 
         // Cada paciente tiene un único odontograma sobre el que se registra cada tratamiento.
         try {
@@ -420,8 +423,9 @@ class OdontogramBoard extends Component
 
     public function setDentition(string $value): void
     {
-        // Un paciente mayor de edad solo puede tener dentición adulta.
-        if ($value === 'child' && $this->patient->isAdult()) {
+        // El valor llega del cliente: solo se aceptan denticiones conocidas y permitidas por la edad
+        // (mayor de edad: solo adulta; menor de 6 años: solo infantil).
+        if (! $this->patient->allowsDentition($value)) {
             return;
         }
 
@@ -432,6 +436,10 @@ class OdontogramBoard extends Component
 
     public function setNumberingSystem(string $value): void
     {
+        if (! in_array($value, self::NUMBERING_SYSTEMS, true)) {
+            return;
+        }
+
         $this->numberingSystem = $value;
         $this->odontogram->update(['numbering_system' => $value]);
     }

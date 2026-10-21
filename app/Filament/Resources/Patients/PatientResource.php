@@ -12,6 +12,7 @@ use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 
 class PatientResource extends Resource
 {
@@ -26,6 +27,26 @@ class PatientResource extends Resource
     protected static ?string $modelLabel = 'paciente';
 
     protected static ?string $pluralModelLabel = 'pacientes';
+
+    public static function getGlobalSearchResultTitle(Model $record): string
+    {
+        return $record->fullName();
+    }
+
+    /** @return array<int, string> */
+    public static function getGloballySearchableAttributes(): array
+    {
+        return ['first_name', 'last_name', 'document_number', 'phone', 'email'];
+    }
+
+    /** @return array<string, string|null> */
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        return array_filter([
+            'Documento' => $record->document_number,
+            'Teléfono' => $record->phone,
+        ]);
+    }
 
     public static function form(Schema $schema): Schema
     {

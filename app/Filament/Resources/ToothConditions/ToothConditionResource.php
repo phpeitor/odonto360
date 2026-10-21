@@ -12,6 +12,7 @@ use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 
 class ToothConditionResource extends Resource
 {
@@ -26,6 +27,23 @@ class ToothConditionResource extends Resource
     protected static ?string $modelLabel = 'condición dental';
 
     protected static ?string $pluralModelLabel = 'condiciones dentales';
+
+    public static function getGlobalSearchResultTitle(Model $record): string
+    {
+        return $record->label;
+    }
+
+    /** @return array<int, string> */
+    public static function getGloballySearchableAttributes(): array
+    {
+        return ['label', 'code', 'category'];
+    }
+
+    /** @return array<string, string|null> */
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        return array_filter(['Código' => $record->code, 'Categoría' => $record->category]);
+    }
 
     public static function form(Schema $schema): Schema
     {

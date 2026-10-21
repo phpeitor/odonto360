@@ -2,10 +2,10 @@
 
 namespace App\Filament\Resources\ToothDefinitions\Tables;
 
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
+use App\Models\ToothDefinition;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
 class ToothDefinitionsTable
@@ -15,29 +15,24 @@ class ToothDefinitionsTable
         return $table
             ->striped()
             ->searchable()
-            ->paginated([5, 10, 25, 50, 100, 'all'])
-            ->defaultPaginationPageOption(5)
+            ->defaultSort('fdi_code')
+            ->paginated([10, 25, 50])
+            ->defaultPaginationPageOption(25)
             ->columns([
                 TextColumn::make('fdi_code')
                     ->label('Código FDI')
                     ->numeric()
                     ->sortable(),
-                TextColumn::make('dentition')
-                    ->label('Dentición')
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'adult' => 'Adulto',
-                        'child' => 'Infantil',
-                        default => $state,
-                    })
-                    ->badge(),
+                TextColumn::make('tooth_type')
+                    ->label('Tipo de diente')
+                    ->formatStateUsing(fn (string $state): string => ucfirst($state))
+                    ->badge()
+                    ->searchable(),
                 TextColumn::make('arch')
                     ->label('Arcada')
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'upper' => 'Superior',
-                        'lower' => 'Inferior',
-                        default => $state,
-                    })
-                    ->badge(),
+                    ->formatStateUsing(fn (string $state): string => $state === 'upper' ? 'Superior' : 'Inferior')
+                    ->badge()
+                    ->color(fn (string $state): string => $state === 'upper' ? 'info' : 'gray'),
                 TextColumn::make('quadrant')
                     ->label('Cuadrante')
                     ->numeric()
@@ -46,43 +41,39 @@ class ToothDefinitionsTable
                     ->label('Posición')
                     ->numeric()
                     ->sortable(),
-                TextColumn::make('tooth_type')
-                    ->label('Tipo de diente')
-                    ->searchable(),
                 TextColumn::make('root_count')
                     ->label('Raíces')
                     ->numeric()
                     ->sortable(),
-                TextColumn::make('universal_number')
-                    ->label('Número universal')
-                    ->numeric()
-                    ->sortable(),
-                TextColumn::make('universal_letter')
-                    ->label('Letra universal')
-                    ->searchable(),
+                TextColumn::make('universal')
+                    ->label('Universal')
+                    ->state(fn (ToothDefinition $record): string|int|null => $record->universal_number ?? $record->universal_letter),
                 TextColumn::make('display_order')
                     ->label('Orden')
                     ->numeric()
-                    ->sortable(),
-                TextColumn::make('created_at')
-                    ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('updated_at')
+                    ->label('Actualizado')
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                SelectFilter::make('arch')
+                    ->label('Arcada')
+                    ->options(['upper' => 'Superior', 'lower' => 'Inferior']),
+                SelectFilter::make('tooth_type')
+                    ->label('Tipo de diente')
+                    ->options([
+                        'incisivo' => 'Incisivo',
+                        'canino' => 'Canino',
+                        'premolar' => 'Premolar',
+                        'molar' => 'Molar',
+                    ]),
             ])
             ->recordActions([
                 EditAction::make(),
-            ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
             ]);
     }
 }
