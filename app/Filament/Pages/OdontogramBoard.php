@@ -21,6 +21,10 @@ class OdontogramBoard extends Page implements HasSchemas
 
     protected static string|BackedEnum|null $navigationIcon = 'healthicons-o-odontology';
 
+    protected static ?string $navigationLabel = 'Odontograma';
+
+    protected static ?string $title = 'Odontograma';
+
     protected string $view = 'filament.pages.odontogram-board';
 
     public ?int $patientId = null;
@@ -109,17 +113,22 @@ class OdontogramBoard extends Page implements HasSchemas
                             ->searchable()
                             ->live(),
                         TextInput::make('document_number')
+                            ->label('Número de documento')
                             ->disabled(),
                         DatePicker::make('birth_date')
+                            ->label('Fecha de nacimiento')
                             ->native(false)
                             ->disabled(),
                         Select::make('sex')
+                            ->label('Sexo')
                             ->options(PatientSex::class)
                             ->native(false)
                             ->disabled(),
                         TextInput::make('phone')
+                            ->label('Teléfono')
                             ->disabled(),
                         TextInput::make('email')
+                            ->label('Correo electrónico')
                             ->email()
                             ->disabled(),
                     ]),

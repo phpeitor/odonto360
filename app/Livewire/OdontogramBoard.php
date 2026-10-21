@@ -420,6 +420,11 @@ class OdontogramBoard extends Component
 
     public function setDentition(string $value): void
     {
+        // Un paciente mayor de edad solo puede tener dentición adulta.
+        if ($value === 'child' && $this->patient->isAdult()) {
+            return;
+        }
+
         $this->dentition = $value;
         $this->odontogram->update(['dentition' => $value]);
         unset($this->definitions, $this->teethByCode, $this->findings);

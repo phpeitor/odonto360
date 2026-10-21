@@ -31,6 +31,14 @@ class Patient extends Model
         return trim("{$this->first_name} {$this->last_name}");
     }
 
+    public const ADULT_AGE = 18;
+
+    /** Mayor de edad (18 años cumplidos a hoy); sin fecha de nacimiento no se puede afirmar. */
+    public function isAdult(): bool
+    {
+        return $this->birth_date !== null && $this->birth_date->age >= self::ADULT_AGE;
+    }
+
     /** El odontograma único del paciente: todo tratamiento se registra sobre él. */
     public function odontogram(): HasOne
     {

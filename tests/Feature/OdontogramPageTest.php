@@ -65,3 +65,32 @@ it('refreshes the form data when the patient changes', function (): void {
             'email' => 'bruno@example.com',
         ]);
 });
+
+it('treats a patient as adult from 18 years old', function (): void {
+    $this->travelTo('2026-10-21');
+
+    $adult = Patient::factory()->make(['birth_date' => '2008-10-21']);
+    $minor = Patient::factory()->make(['birth_date' => '2008-10-22']);
+    $unknown = Patient::factory()->make(['birth_date' => null]);
+
+    expect($adult->isAdult())->toBeTrue()
+        ->and($minor->isAdult())->toBeFalse()
+        ->and($unknown->isAdult())->toBeFalse();
+});
+
+it('does not allow switching an adult patient to child dentition', function (): void {
+    $patient = Patient::factory()->create(['birth_date' => '1991-02-03']);
+
+    Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $patient])
+        ->call('setDentition', 'child')
+        ->assertSet('dentition', 'adult')
+        ->assertSeeHtml('title="Paciente mayor de edad: solo dentición adulta"');
+});
+
+it('allows switching a minor patient to child dentition', function (): void {
+    $patient = Patient::factory()->create(['birth_date' => now()->subYears(8)->toDateString()]);
+
+    Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $patient])
+        ->call('setDentition', 'child')
+        ->assertSet('dentition', 'child');
+});

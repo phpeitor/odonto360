@@ -32,6 +32,9 @@ class AdminPanelProvider extends PanelProvider
             ->path('/')
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->login()
+            ->brandLogo(asset('images/odonto360-dark.svg'))
+            ->darkModeBrandLogo(asset('images/odonto360-light.svg'))
+            ->brandLogoHeight('2.5rem')
             ->colors([
                 'primary' => Color::Amber,
             ])
