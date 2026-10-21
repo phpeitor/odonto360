@@ -2,9 +2,9 @@
   <title>Odonto360 · PHPeitor</title>
   <style>
     .phpeitor-trace {
-      fill: none; stroke: #A61B3B; stroke-opacity: 1; stroke-width: 1.8;
+      fill: none; stroke: #D97706; stroke-opacity: 1; stroke-width: 1.8;
       stroke-dasharray: 70 200; vector-effect: non-scaling-stroke;
-      filter: drop-shadow(0 0 3px #D43D61) drop-shadow(0 0 1px #fff);
+      filter: drop-shadow(0 0 3px #F59E0B) drop-shadow(0 0 1px #fff);
       animation: phpeitor-trace 5s linear infinite;
     }
     @keyframes phpeitor-trace { to { stroke-dashoffset: -270px; } }

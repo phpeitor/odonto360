@@ -13,8 +13,11 @@ use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\Width;
+use Filament\Support\Facades\FilamentIcon;
+use Filament\View\PanelsIconAlias;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
+use Illuminate\Contracts\View\View;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -24,6 +27,14 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class AdminPanelProvider extends PanelProvider
 {
+    public function boot(): void
+    {
+        FilamentIcon::register([
+            PanelsIconAlias::SIDEBAR_COLLAPSE_BUTTON => 'tabler-layout-sidebar-left-collapse',
+            PanelsIconAlias::SIDEBAR_EXPAND_BUTTON => 'tabler-layout-sidebar-left-expand',
+        ]);
+    }
+
     public function panel(Panel $panel): Panel
     {
         return $panel
@@ -32,9 +43,10 @@ class AdminPanelProvider extends PanelProvider
             ->path('/')
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->login()
-            ->brandLogo(asset('images/odonto360-dark.svg'))
-            ->darkModeBrandLogo(asset('images/odonto360-light.svg'))
+            ->brandLogo(fn (): View => view('filament.brand.logo', ['variant' => 'dark']))
+            ->darkModeBrandLogo(fn (): View => view('filament.brand.logo', ['variant' => 'light']))
             ->brandLogoHeight('2.5rem')
+            ->favicon(asset('images/tooth-favicon.svg'))
             ->colors([
                 'primary' => Color::Amber,
             ])

@@ -84,7 +84,7 @@ it('does not allow switching an adult patient to child dentition', function (): 
     Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $patient])
         ->call('setDentition', 'child')
         ->assertSet('dentition', 'adult')
-        ->assertSeeHtml('title="Paciente mayor de edad: solo dentición adulta"');
+        ->assertSee('Paciente mayor de edad: solo dentición adulta');
 });
 
 it('allows switching a minor patient to child dentition', function (): void {

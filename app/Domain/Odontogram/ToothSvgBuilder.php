@@ -198,10 +198,10 @@ final class ToothSvgBuilder
 
             if ($interactive) {
                 return sprintf(
-                    '<polygon class="zone" data-face="%s" points="%s" fill="%s" stroke="%s" stroke-width="1" title="%s" '
+                    '<polygon class="zone" data-face="%s" points="%s" fill="%s" stroke="%s" stroke-width="1" x-tooltip="{ content: \'%s\', theme: $store.theme }" '
                     .'@click="$wire.selectZone(%d, \'%s\')" '
                     .'@mouseenter="hover = {code: %d, face: \'%s\'}" @mouseleave="hover = null"/>',
-                    $face, $shifted, $fill($face), $divider, $name, $code, $face, $code, $name
+                    $face, $shifted, $fill($face), $divider, e($name), $code, $face, $code, $name
                 );
             }
 
