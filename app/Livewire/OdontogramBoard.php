@@ -12,6 +12,7 @@ use App\Models\ToothCondition;
 use App\Models\ToothDefinition;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use Livewire\Attributes\Computed;
@@ -157,7 +158,7 @@ class OdontogramBoard extends Component
     {
         $entries = $this->odontogram
             ->treatmentLog()
-            ->with('condition')
+            ->with(['condition', 'user'])
             ->orderByDesc('registered_at')
             ->get();
 
@@ -171,6 +172,7 @@ class OdontogramBoard extends Component
                 'face' => $action['face'],
                 'condition' => $condition,
                 'observation' => $action['observation'],
+                'user' => Auth::user(),
                 'registered_at' => now(),
                 'pending' => true,
             ]);
@@ -333,6 +335,7 @@ class OdontogramBoard extends Component
             'face' => $action['face'],
             'condition_id' => $condition?->id,
             'observation' => $action['observation'],
+            'user_id' => Auth::id(),
             'registered_at' => now(),
         ]);
     }

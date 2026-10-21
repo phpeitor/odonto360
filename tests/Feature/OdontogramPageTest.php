@@ -5,6 +5,8 @@ use App\Filament\Pages\OdontogramBoard;
 use App\Filament\Resources\Patients\PatientResource;
 use App\Models\Patient;
 use App\Models\User;
+use Database\Seeders\ToothConditionSeeder;
+use Database\Seeders\ToothDefinitionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
@@ -151,4 +153,24 @@ it('blocks the adult dentition for patients under 6 and starts them on child', f
         ->assertSet('dentition', 'child')
         ->call('setDentition', 'adult')
         ->assertSet('dentition', 'adult');
+});
+
+it('records which user registered each treatment', function (): void {
+    $this->seed([ToothConditionSeeder::class, ToothDefinitionSeeder::class]);
+    $user = User::factory()->create(['name' => 'Dra. Rosa Quispe']);
+    $this->actingAs($user);
+
+    $patient = Patient::factory()->create(['birth_date' => '1991-02-03']);
+
+    Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $patient])
+        ->set('activeCondition', 'caries')
+        ->call('selectZone', 11, 'v')
+        ->assertSee('Dra. Rosa Quispe')
+        ->call('save')
+        ->assertSee('Dra. Rosa Quispe');
+
+    $entry = $patient->odontogram()->first()->treatmentLog()->first();
+
+    expect($entry->user_id)->toBe($user->id)
+        ->and($entry->user->name)->toBe('Dra. Rosa Quispe');
 });

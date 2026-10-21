@@ -38,7 +38,7 @@ class DentalTreatment extends Component implements HasActions, HasSchemas, HasTa
             ->query(
                 OdontogramTreatmentLog::query()
                     ->whereHas('odontogram', fn ($q) => $q->where('patient_id', $this->patient->id))
-                    ->with('condition')
+                    ->with(['condition', 'user'])
             )
             ->striped()
             ->searchable()
@@ -58,6 +58,10 @@ class DentalTreatment extends Component implements HasActions, HasSchemas, HasTa
                 TextColumn::make('observation')
                     ->label('Observación')
                     ->limit(50),
+                TextColumn::make('user.name')
+                    ->label('Registró')
+                    ->placeholder('—')
+                    ->toggleable(),
                 TextColumn::make('registered_at')
                     ->label('Fecha')
                     ->dateTime()

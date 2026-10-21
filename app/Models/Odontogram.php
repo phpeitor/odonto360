@@ -32,6 +32,14 @@ class Odontogram extends Model
         );
     }
 
+    public function practitioner(): BelongsTo
+    {
+        return $this->belongsTo(
+            related: User::class,
+            foreignKey: 'practitioner_id'
+        );
+    }
+
     public function teeth(): HasMany
     {
         return $this->hasMany(
