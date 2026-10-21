@@ -14,6 +14,7 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Support\HtmlString;
 
 class PatientForm
 {
@@ -26,6 +27,14 @@ class PatientForm
                     ->length(8)
                     ->numeric()
                     ->rule('digits:8')
+                    ->helperText(new HtmlString(
+                        '<span wire:loading.flex wire:target="data.document_number" class="hidden items-center gap-1.5 text-primary-600">'
+                        .'<svg class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+                        .'<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>'
+                        .'<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>'
+                        .'</svg>'
+                        .'Consultando datos del paciente...</span>',
+                    ))
                     ->live(onBlur: true)
                     ->afterStateUpdated(function (Set $set, ?string $state): void {
                         $documentNumber = preg_replace('/\D+/', '', (string) $state);

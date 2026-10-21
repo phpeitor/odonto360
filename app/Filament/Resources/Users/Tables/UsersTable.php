@@ -23,6 +23,16 @@ class UsersTable
                     ->label('Nombre')
                     ->searchable()
                     ->sortable(),
+                TextColumn::make('document_number')
+                    ->label('Documento')
+                    ->searchable()
+                    ->sortable(),
+                TextColumn::make('phone')
+                    ->label('Teléfono')
+                    ->searchable(),
+                TextColumn::make('sex')
+                    ->label('Sexo')
+                    ->badge(),
                 TextColumn::make('email')
                     ->label('Correo electrónico')
                     ->searchable()

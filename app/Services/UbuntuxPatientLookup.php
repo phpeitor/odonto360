@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
 class UbuntuxPatientLookup
 {
     /**
-     * @return array{first_name: string, last_name: string, birth_date: string}|null
+     * @return array{first_name: string, last_name: string, birth_date: string, phone: ?string, sex: ?string}|null
      */
     public function findByDocument(string $documentNumber): ?array
     {
@@ -33,6 +33,8 @@ class UbuntuxPatientLookup
         $paternalSurname = $this->value($person, 'PATERNO', 'paterno');
         $maternalSurname = $this->value($person, 'MATERNO', 'materno');
         $birthDate = $this->value($person, 'NACIMIENTO', 'nacimiento', 'birth_date');
+        $phone = $this->value($person, 'TELEFONO', 'TELEFONO_CELULAR', 'telefono', 'phone');
+        $sex = $this->normalizeSex($this->value($person, 'SEXO', 'sexo', 'sex'));
 
         if ($firstName === null || ($paternalSurname === null && $maternalSurname === null) || $birthDate === null) {
             return null;
@@ -42,6 +44,8 @@ class UbuntuxPatientLookup
             'first_name' => $firstName,
             'last_name' => trim(implode(' ', array_filter([$paternalSurname, $maternalSurname]))),
             'birth_date' => $birthDate,
+            'phone' => $phone,
+            'sex' => $sex,
         ];
     }
 
@@ -84,5 +88,15 @@ class UbuntuxPatientLookup
         }
 
         return null;
+    }
+
+    private function normalizeSex(?string $sex): ?string
+    {
+        return match (strtoupper(trim((string) $sex))) {
+            'M', 'MASCULINO' => 'Masculino',
+            'F', 'FEMENINO' => 'Femenino',
+            'O', 'OTRO' => 'Otro',
+            default => null,
+        };
     }
 }

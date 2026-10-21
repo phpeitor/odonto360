@@ -12,6 +12,8 @@ it('maps the Ubuntux patient response to the patient form fields', function (): 
             'MATERNO' => 'VILCAHUAMAN',
             'NOMBRES' => 'WILLY JOEL',
             'NACIMIENTO' => '1990-06-26',
+            'TELEFONO' => '999888777',
+            'SEXO' => 'M',
         ]),
     ]);
 
@@ -21,6 +23,8 @@ it('maps the Ubuntux patient response to the patient form fields', function (): 
         'first_name' => 'WILLY JOEL',
         'last_name' => 'PERCA VILCAHUAMAN',
         'birth_date' => '1990-06-26',
+        'phone' => '999888777',
+        'sex' => 'Masculino',
     ]);
 
     Http::assertSent(fn ($request): bool => $request->url() === 'https://ubuntux.test/config/api.php?dni=48118043');
