@@ -17,6 +17,7 @@ class ToothDefinitionForm
         return $schema
             ->components([
                 Tabs::make('Configuración de la pieza')
+                    ->columnSpanFull()
                     ->persistTabInQueryString()
                     ->tabs([
                         Tab::make('Identificación')

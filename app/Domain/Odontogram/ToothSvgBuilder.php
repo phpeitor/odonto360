@@ -200,7 +200,7 @@ final class ToothSvgBuilder
                 return sprintf(
                     '<polygon class="zone" data-face="%s" points="%s" fill="%s" stroke="%s" stroke-width="1" title="%s" '
                     .'@click="$wire.selectZone(%d, \'%s\')" '
-                    .'@mouseover="hover = {code: %d, face: \'%s\'}" @mouseout="hover = null"/>',
+                    .'@mouseenter="hover = {code: %d, face: \'%s\'}" @mouseleave="hover = null"/>',
                     $face, $shifted, $fill($face), $divider, $name, $code, $face, $code, $name
                 );
             }
@@ -300,7 +300,7 @@ final class ToothSvgBuilder
                 '<text x="50" y="%s" text-anchor="middle" dominant-baseline="middle" '
                 .'font-family="\'JetBrains Mono\',monospace" font-size="15" font-weight="700" fill="%s" '
                 .'style="cursor:pointer" @click="$wire.selectZone(%d, \'numero\')" '
-                .'@mouseover="hover = {code: %d, face: \'Pieza completa\'}" @mouseout="hover = null">%s</text>',
+                .'@mouseenter="hover = {code: %d, face: \'Pieza completa\'}" @mouseleave="hover = null">%s</text>',
                 $numberY + 0.5, $ink, $code, $code, e($shownNumber)
             );
         }

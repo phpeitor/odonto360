@@ -4,7 +4,7 @@
     <div class="flex flex-wrap items-center justify-between gap-4">
         <div>
             <h2 class="text-lg font-semibold">{{ $patient->fullName() }}</h2>
-            <p class="text-xs text-gray-500" x-show="hover" x-cloak
+            <p class="h-4 text-xs text-gray-500"
                x-text="hover ? ('Pieza ' + hover.code + ' · ' + hover.face) : ''"></p>
         </div>
 
