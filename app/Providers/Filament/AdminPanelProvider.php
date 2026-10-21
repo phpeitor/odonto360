@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Pages\Auth\Login;
 use Filament\Enums\GlobalSearchPosition;
 use Filament\Enums\UserMenuPosition;
 use Filament\Http\Middleware\Authenticate;
@@ -15,6 +16,7 @@ use Filament\Support\Colors\Color;
 use Filament\Support\Enums\Width;
 use Filament\Support\Facades\FilamentIcon;
 use Filament\View\PanelsIconAlias;
+use Filament\View\PanelsRenderHook;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
 use Illuminate\Contracts\View\View;
@@ -42,7 +44,8 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('/')
             ->viteTheme('resources/css/filament/admin/theme.css')
-            ->login()
+            ->login(Login::class)
+            ->renderHook(PanelsRenderHook::SIMPLE_PAGE_START, fn (): View => view('filament.auth.tooth-mascot'), scopes: Login::class)
             ->brandLogo(fn (): View => view('filament.brand.logo', ['variant' => 'dark']))
             ->darkModeBrandLogo(fn (): View => view('filament.brand.logo', ['variant' => 'light']))
             ->brandLogoHeight('2.5rem')
