@@ -17,10 +17,13 @@
                         'bg-white text-gray-700 hover:bg-gray-50' => $dentition !== 'adult',
                     ])>Adulto · 32</button>
                 <button type="button" wire:click="setDentition('child')"
+                    @disabled($patient->isAdult())
+                    @if ($patient->isAdult()) title="Paciente mayor de edad: solo dentición adulta" @endif
                     @class([
                         'border-l border-gray-300 px-3 py-1.5 text-xs font-semibold transition-colors',
                         'bg-primary-600 text-white' => $dentition === 'child',
-                        'bg-white text-gray-700 hover:bg-gray-50' => $dentition !== 'child',
+                        'bg-white text-gray-700 hover:bg-gray-50' => $dentition !== 'child' && ! $patient->isAdult(),
+                        'cursor-not-allowed bg-gray-100 text-gray-400' => $patient->isAdult(),
                     ])>Niño · 20</button>
             </div>
 
