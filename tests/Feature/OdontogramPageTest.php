@@ -174,3 +174,21 @@ it('records which user registered each treatment', function (): void {
     expect($entry->user_id)->toBe($user->id)
         ->and($entry->user->name)->toBe('Dra. Rosa Quispe');
 });
+
+it('notifies with a toast when the odontogram is saved', function (): void {
+    $this->seed([ToothConditionSeeder::class, ToothDefinitionSeeder::class]);
+    $this->actingAs(User::factory()->create());
+    $patient = Patient::factory()->create();
+
+    Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $patient])
+        ->set('activeCondition', 'caries')
+        ->call('selectZone', 11, 'v')
+        ->call('save')
+        ->assertNotified('Odontograma guardado')
+        ->assertDontSee('Guardado ✓')
+        ->call('saveToothNote')
+        ->call('openToothNote', 11)
+        ->set('toothNoteText', 'Revisar en 15 días')
+        ->call('saveToothNote')
+        ->assertNotified('Nota de la pieza 11 guardada');
+});
