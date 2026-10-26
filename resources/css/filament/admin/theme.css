@@ -4,11 +4,18 @@
 @source '../../../../app/Filament/**/*';
 @source '../../../../resources/views/filament/**/*';
 
+/*
+ * Colores del odontograma (número de pieza, contornos y recuadro de siglas). Van con valores
+ * propios: Filament no define las variables de daisyUI (--color-base-*) y, sin valor, el SVG
+ * pinta el número de pieza en negro sobre negro. Son los mismos en modo oscuro: el diente es
+ * blanco y sus contornos deben seguir oscuros.
+ */
 :root {
-    --ink: var(--color-base-content);
-    --surface-alt: var(--color-base-200);
-    --border: var(--color-base-300);
+    --ink: #0f2a30;
+    --surface-alt: #e2e8f0;
+    --border: #94a3b8;
 }
+
 
 .tooth-wrap {
     flex-shrink: 0;
