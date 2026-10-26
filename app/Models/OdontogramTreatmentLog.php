@@ -15,6 +15,8 @@ class OdontogramTreatmentLog extends Model
         'face',
         'action',
         'condition_id',
+        'abbreviation',
+        'state',
         'previous_condition_id',
         'observation',
         'user_id',

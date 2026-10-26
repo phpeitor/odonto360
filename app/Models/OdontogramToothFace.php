@@ -11,6 +11,8 @@ class OdontogramToothFace extends Model
         'odontogram_tooth_id',
         'face',
         'condition_id',
+        'abbreviation',
+        'state',
     ];
 
     public function tooth(): BelongsTo

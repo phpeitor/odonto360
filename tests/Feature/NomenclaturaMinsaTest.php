@@ -1,0 +1,150 @@
+<?php
+
+use App\Domain\Odontogram\ToothSvgBuilder;
+use App\Domain\Odontogram\TreatmentVoider;
+use App\Livewire\OdontogramBoard;
+use App\Models\OdontogramToothFinding;
+use App\Models\Patient;
+use App\Models\ToothCondition;
+use App\Models\ToothDefinition;
+use App\Models\User;
+use Database\Seeders\ToothConditionSeeder;
+use Database\Seeders\ToothDefinitionSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
+
+uses(RefreshDatabase::class);
+
+beforeEach(function (): void {
+    $this->seed([ToothConditionSeeder::class, ToothDefinitionSeeder::class]);
+    $this->user = User::factory()->create();
+    $this->actingAs($this->user);
+    $this->patient = Patient::factory()->create(['birth_date' => '1991-02-03']);
+});
+
+it('siembra los 28 hallazgos de pieza y cara de la norma, solo en azul o rojo', function (): void {
+    $findings = ToothCondition::where('code', '!=', ToothCondition::CODE_SANO)->get();
+
+    expect($findings)->toHaveCount(28)
+        ->and($findings->pluck('color')->unique()->sort()->values()->all())
+        ->toBe([ToothCondition::COLOR_GOOD, ToothCondition::COLOR_BAD])
+        ->and(ToothCondition::where('code', 'caries')->first()->abbreviationOptions())->toBe(['MB', 'CE', 'CD', 'CDP'])
+        ->and(ToothCondition::where('code', 'extraccion')->exists())->toBeFalse();
+});
+
+it('preselecciona la primera sigla y el estado por defecto, y rechaza valores no permitidos', function (): void {
+    Livewire::test(OdontogramBoard::class, ['patient' => $this->patient])
+        ->call('pickCondition', 'corona')
+        ->assertSet('activeAbbreviation', 'CM')
+        ->assertSet('activeState', 'bueno')
+        ->call('pickAbbreviation', 'XX')
+        ->assertSet('activeAbbreviation', 'CM')
+        ->call('pickState', 'malo')
+        ->assertSet('activeState', 'malo')
+        // La caries solo se registra en mal estado (rojo).
+        ->call('pickCondition', 'caries')
+        ->assertSet('activeState', 'malo')
+        ->call('pickState', 'bueno')
+        ->assertSet('activeState', 'malo');
+});
+
+it('registra varios hallazgos en la misma pieza con su sigla y estado', function (): void {
+    Livewire::test(OdontogramBoard::class, ['patient' => $this->patient])
+        ->call('pickCondition', 'corona')
+        ->call('pickAbbreviation', 'CMC')
+        ->call('pickState', 'malo')
+        ->call('selectZone', 16, 'numero')
+        ->call('pickCondition', 'endodoncia')
+        ->call('selectZone', 16, 'o')
+        ->call('pickCondition', 'movilidad')
+        ->call('pickAbbreviation', 'M2')
+        ->call('selectZone', 16, 'numero')
+        ->call('save');
+
+    $tooth = $this->patient->odontogram->teeth()->where('fdi_code', 16)->first();
+    $findings = $tooth->findings()->with('condition')->get()->keyBy('condition.code');
+
+    expect($findings)->toHaveCount(3)
+        ->and($findings['corona']->only(['abbreviation', 'state']))->toBe(['abbreviation' => 'CMC', 'state' => 'malo'])
+        ->and($findings['endodoncia']->only(['abbreviation', 'state']))->toBe(['abbreviation' => 'TC', 'state' => 'bueno'])
+        ->and($findings['movilidad']->only(['abbreviation', 'state']))->toBe(['abbreviation' => 'M2', 'state' => 'malo'])
+        ->and($tooth->faces()->count())->toBe(0);
+});
+
+it('quita un solo hallazgo de la pieza desde el listado', function (): void {
+    $component = Livewire::test(OdontogramBoard::class, ['patient' => $this->patient])
+        ->call('pickCondition', 'corona')
+        ->call('selectZone', 21, 'numero')
+        ->call('pickCondition', 'pulpotomia')
+        ->call('selectZone', 21, 'numero')
+        ->call('save');
+
+    $component->call('removeFinding', 21, null, 'corona')->call('save');
+
+    $codes = OdontogramToothFinding::with('condition')->get()->pluck('condition.code')->all();
+
+    expect($codes)->toBe(['pulpotomia']);
+});
+
+it('guarda la sigla y el estado de las caras', function (): void {
+    Livewire::test(OdontogramBoard::class, ['patient' => $this->patient])
+        ->call('pickCondition', 'obturacion')
+        ->call('pickAbbreviation', 'AM')
+        ->call('pickState', 'malo')
+        ->call('selectZone', 36, 'o')
+        ->call('save');
+
+    $face = $this->patient->odontogram->teeth()->where('fdi_code', 36)->first()->faces()->first();
+
+    expect($face->only(['face', 'abbreviation', 'state']))->toBe(['face' => 'o', 'abbreviation' => 'AM', 'state' => 'malo']);
+});
+
+it('al anular, quita el hallazgo aplicado o restaura el borrado con su sigla', function (): void {
+    $component = Livewire::test(OdontogramBoard::class, ['patient' => $this->patient])
+        ->call('pickCondition', 'ausente')
+        ->call('pickAbbreviation', 'DEX')
+        ->call('selectZone', 46, 'numero')
+        ->call('save')
+        ->call('pickCondition', 'sano')
+        ->call('selectZone', 46, 'numero')
+        ->call('save');
+
+    $odontogram = $this->patient->odontogram;
+    [$apply, $clear] = $odontogram->treatmentLog()->orderBy('id')->get()->all();
+
+    expect(OdontogramToothFinding::count())->toBe(0);
+
+    (new TreatmentVoider)->void($clear, $this->user);
+
+    $restored = OdontogramToothFinding::first();
+    expect($restored->only(['abbreviation', 'state']))->toBe(['abbreviation' => 'DEX', 'state' => 'bueno']);
+
+    (new TreatmentVoider)->void($apply->fresh(), $this->user);
+
+    expect(OdontogramToothFinding::count())->toBe(0);
+});
+
+it('guarda especificaciones y observaciones del odontograma', function (): void {
+    Livewire::test(OdontogramBoard::class, ['patient' => $this->patient])
+        ->set('specifications', 'Corona 16 de metal dorado')
+        ->set('notes', 'Paciente refiere bruxismo')
+        ->call('save');
+
+    expect($this->patient->odontogram->only(['specifications', 'notes']))
+        ->toBe(['specifications' => 'Corona 16 de metal dorado', 'notes' => 'Paciente refiere bruxismo']);
+});
+
+it('dibuja el recuadro de siglas con el color de cada estado', function (): void {
+    $svg = ToothSvgBuilder::render(
+        def: ToothDefinition::where('fdi_code', 16)->first(),
+        shownNumber: '16',
+        faces: ['o' => ['code' => 'caries', 'abbreviation' => 'CD', 'state' => 'malo', 'glyph' => 'fill']],
+        findings: ['corona' => ['abbreviation' => 'CMC', 'state' => 'bueno', 'glyph' => 'corona']],
+    );
+
+    expect($svg)
+        ->toContain('viewBox="0 0 100 '.ToothSvgBuilder::VIEWBOX_HEIGHT.'"')
+        ->toMatch('/fill="'.ToothCondition::COLOR_BAD.'">CD<\/text>/')
+        ->toMatch('/fill="'.ToothCondition::COLOR_GOOD.'">CMC<\/text>/')
+        ->toContain('stroke="'.ToothCondition::COLOR_GOOD.'" stroke-width="5"');
+});

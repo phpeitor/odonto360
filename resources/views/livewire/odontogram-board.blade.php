@@ -57,33 +57,92 @@
         </div>
     </div>
 
-    {{-- Notas del odontograma y fecha de examen --}}
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    {{-- Fecha de examen, especificaciones (NTS 188, 5.14) y observaciones (5.15) --}}
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-[12rem_1fr_1fr]">
         <div>
             <label for="examinedAt" class="mb-1 block text-xs font-semibold text-gray-600">Fecha de examen</label>
             <input type="date" wire:model="examinedAt" id="examinedAt"
                 class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
         </div>
         <div>
-            <label for="notes" class="mb-1 block text-xs font-semibold text-gray-600">Notas del odontograma</label>
+            <label for="specifications" class="mb-1 block text-xs font-semibold text-gray-600">Especificaciones</label>
+            <textarea wire:model="specifications" id="specifications" rows="2"
+                class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+                placeholder="Hallazgos que no entran en los recuadros: color del metal de la corona, fluorosis, material..."></textarea>
+        </div>
+        <div>
+            <label for="notes" class="mb-1 block text-xs font-semibold text-gray-600">Observaciones</label>
             <textarea wire:model="notes" id="notes" rows="2"
                 class="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
-                placeholder="Observaciones generales del examen..."></textarea>
+                placeholder="Hallazgos no contemplados en la nomenclatura del odontograma..."></textarea>
         </div>
     </div>
 
-    {{-- Paleta de condiciones --}}
-    <div class="flex flex-wrap gap-2">
-        @foreach ($this->conditions as $condition)
-            <button type="button"
-                wire:click="pickCondition('{{ $condition->code }}')"
-                class="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition-all"
-                style="border-color: {{ $condition->color }};
-                       {{ $activeCondition === $condition->code ? 'background:'.$condition->color.'; color:#fff;' : 'color:'.$condition->color.';' }}">
-                <span class="h-2.5 w-2.5 rounded-full" style="background: {{ $condition->color }}"></span>
-                {{ $condition->label }}
-            </button>
+    {{-- Paleta de hallazgos (nomenclatura NTS N° 188-MINSA/DGIESP-2022) --}}
+    <div class="space-y-3">
+        @foreach ($this->conditionGroups as $category => $group)
+            <div class="flex flex-wrap items-center gap-2">
+                @unless ($category === 'sano')
+                    <span class="w-full text-[11px] font-semibold uppercase tracking-wide text-gray-400 sm:w-48">
+                        {{ \App\Models\ToothCondition::CATEGORY_LABELS[$category] ?? $category }}
+                    </span>
+                @endunless
+                @foreach ($group as $condition)
+                    @php($chipColor = $condition->code === \App\Models\ToothCondition::CODE_SANO ? '#6B7280' : $condition->color)
+                    <button type="button"
+                        wire:click="pickCondition('{{ $condition->code }}')"
+                        class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-all"
+                        style="border-color: {{ $chipColor }};
+                               {{ $activeCondition === $condition->code ? 'background:'.$chipColor.'; color:#fff;' : 'color:'.$chipColor.';' }}">
+                        {{ $condition->label }}
+                    </button>
+                @endforeach
+            </div>
         @endforeach
+
+        {{-- Sigla y estado con los que se registra la condición activa --}}
+        @if ($this->activeConditionModel && $this->activeConditionModel->code !== \App\Models\ToothCondition::CODE_SANO)
+            @php($active = $this->activeConditionModel)
+            <div class="flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
+                <span class="font-semibold text-gray-700">{{ $active->label }}</span>
+
+                @if (count($active->abbreviationOptions()) > 0)
+                    <div class="inline-flex flex-wrap items-center gap-1">
+                        <span class="text-gray-500">Sigla:</span>
+                        @foreach ($active->abbreviationOptions() as $abbreviation)
+                            <button type="button" wire:click="pickAbbreviation('{{ $abbreviation }}')"
+                                @class([
+                                    'rounded border px-2 py-0.5 font-mono font-semibold',
+                                    'border-gray-800 bg-gray-800 text-white' => $activeAbbreviation === $abbreviation,
+                                    'border-gray-300 bg-white text-gray-700 hover:bg-gray-100' => $activeAbbreviation !== $abbreviation,
+                                ])>{{ $abbreviation }}</button>
+                        @endforeach
+                    </div>
+                @endif
+
+                <div class="inline-flex items-center gap-1">
+                    <span class="text-gray-500">Estado:</span>
+                    @foreach ($active->states() as $state)
+                        @php($stateColor = \App\Models\ToothCondition::colorForState($state))
+                        <button type="button" wire:click="pickState('{{ $state }}')"
+                            class="rounded-full border px-2 py-0.5 font-semibold"
+                            style="border-color: {{ $stateColor }}; {{ $activeState === $state ? 'background:'.$stateColor.'; color:#fff;' : 'color:'.$stateColor.';' }}">
+                            {{ \App\Models\ToothCondition::STATE_LABELS[$state] }}
+                        </button>
+                    @endforeach
+                </div>
+
+                <span class="ml-auto text-gray-500">
+                    {{ $active->target === 'face' ? 'Clic en la cara afectada' : 'Clic en la pieza' }}
+                </span>
+            </div>
+        @endif
+
+        <p class="text-[11px] text-gray-500">
+            <span class="font-semibold" style="color: {{ \App\Models\ToothCondition::COLOR_GOOD }}">Azul</span>: buen estado ·
+            <span class="font-semibold" style="color: {{ \App\Models\ToothCondition::COLOR_BAD }}">Rojo</span>: mal estado, temporal o patológico
+            — NTS N° 188-MINSA/DGIESP-2022
+        </p>
     </div>
 
     {{-- Arcos superior e inferior (en dentición mixta: permanente + temporal por arcada) --}}
@@ -120,10 +179,19 @@
         <div class="border-b border-gray-200 px-4 py-3 text-sm font-semibold">Hallazgos</div>
         <div class="space-y-2 p-4">
             @forelse ($this->findings as $finding)
-                <div class="flex items-center gap-2 text-sm">
+                <div class="flex flex-wrap items-center gap-2 text-sm">
                     <span class="h-2.5 w-2.5 rounded-full" style="background: {{ $finding['color'] }}"></span>
                     <span class="font-mono font-semibold">{{ $finding['fdi_code'] }}</span>
+                    @if ($finding['abbreviation'])
+                        <span class="font-mono text-xs font-bold" style="color: {{ $finding['color'] }}">{{ $finding['abbreviation'] }}</span>
+                    @endif
                     <span>{{ $finding['label'] }} ({{ $finding['face_label'] }})</span>
+                    <span class="text-xs" style="color: {{ $finding['color'] }}">{{ \App\Models\ToothCondition::STATE_LABELS[$finding['state']] ?? '' }}</span>
+                    <button type="button"
+                        wire:click="removeFinding({{ $finding['fdi_code'] }}, {{ $finding['face'] ? "'".$finding['face']."'" : 'null' }}, '{{ $finding['code'] }}')"
+                        class="ml-auto rounded-lg border border-gray-300 px-2 py-0.5 text-[10px] font-semibold text-gray-600 hover:bg-gray-50">
+                        Quitar
+                    </button>
                 </div>
             @empty
                 <p class="text-sm text-gray-500">Sin hallazgos registrados todavía.</p>
@@ -142,7 +210,10 @@
                     <span class="text-xs text-gray-500 {{ $struck }}">{{ $this->faceLabel($entry->face) }}</span>
                     @if ($entry->condition)
                         <span class="inline-flex items-center gap-1.5 text-xs {{ $struck }}">
-                            <span class="h-2.5 w-2.5 rounded-full" style="background: {{ $entry->condition->color }}"></span>
+                            <span class="h-2.5 w-2.5 rounded-full" style="background: {{ \App\Models\ToothCondition::colorForState($entry->state ?? $entry->condition->defaultState()) }}"></span>
+                            @if ($entry->abbreviation ?? null)
+                                <span class="font-mono font-bold">{{ $entry->abbreviation }}</span>
+                            @endif
                             {{ $entry->condition->label }}
                         </span>
                     @endif

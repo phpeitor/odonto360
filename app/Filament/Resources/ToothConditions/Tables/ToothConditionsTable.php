@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ToothConditions\Tables;
 
+use App\Models\ToothCondition;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -39,15 +40,19 @@ class ToothConditionsTable
                     ->badge(),
                 TextColumn::make('category')
                     ->label('Categoría')
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'sano' => 'Sano',
-                        'patologia' => 'Patología',
-                        'restauracion' => 'Restauración',
-                        'protesis' => 'Prótesis',
-                        'quirurgico' => 'Quirúrgico',
-                        default => $state,
-                    })
+                    ->formatStateUsing(fn (string $state): string => ToothCondition::CATEGORY_LABELS[$state] ?? $state)
                     ->badge(),
+                TextColumn::make('abbreviations')
+                    ->label('Siglas')
+                    ->badge()
+                    ->placeholder('—'),
+                TextColumn::make('allowed_states')
+                    ->label('Estados')
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'bueno' => 'Buen estado',
+                        'malo' => 'Mal estado',
+                        default => 'Ambos',
+                    }),
                 TextColumn::make('sort_order')
                     ->label('Orden')
                     ->numeric()
