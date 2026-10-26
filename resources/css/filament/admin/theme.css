@@ -18,6 +18,8 @@
     display: block;
     width: clamp(40px, 6vw, 54px);
     aspect-ratio: 100 / 228;
+    /* Los hallazgos de varias piezas sobresalen para unirse con la pieza vecina. */
+    overflow: visible;
 }
 
 .tooth-svg .zone,

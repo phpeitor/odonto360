@@ -5,10 +5,7 @@ namespace Database\Seeders;
 use App\Models\ToothCondition;
 use Illuminate\Database\Seeder;
 
-/**
- * Hallazgos de pieza y de cara de la NTS N° 188-MINSA/DGIESP-2022 (numeral 6.1).
- * Los que abarcan varias piezas (prótesis, aparatos ortodónticos, diastema…) se agregan aparte.
- */
+/** Los 38 hallazgos de la nomenclatura de la NTS N° 188-MINSA/DGIESP-2022 (numeral 6.1). */
 class ToothConditionSeeder extends Seeder
 {
     /**
@@ -53,6 +50,18 @@ class ToothConditionSeeder extends Seeder
             ['macrodoncia',           'Macrodoncia',                'tooth', 'anomalia',     'bueno', ['MAC'],                           null,         300],
             ['microdoncia',           'Microdoncia',                'tooth', 'anomalia',     'bueno', ['MIC'],                           null,         310],
             ['ffp',                   'Fosas y fisuras profundas',  'tooth', 'anomalia',     'bueno', ['FFP'],                           null,         320],
+
+            // Varias piezas: se marcan con clic en la pieza inicial y en la final (o en una pieza de la arcada)
+            ['ortodoncia_fija',       'Aparato ortodóntico fijo',      'span', 'varias',     'ambos', null,                              'ortodoncia_fija',      400],
+            ['ortodoncia_removible',  'Aparato ortodóntico removible', 'span', 'varias',     'ambos', null,                              'ortodoncia_removible', 410],
+            ['protesis_fija',         'Prótesis parcial fija',         'span', 'varias',     'ambos', null,                              'protesis_fija',        420],
+            ['protesis_removible',    'Prótesis parcial removible',    'span', 'varias',     'ambos', null,                              'protesis_removible',   430],
+            ['protesis_completa',     'Prótesis completa',             'span', 'varias',     'ambos', null,                              'protesis_completa',    440],
+            ['edentulo',              'Edéntulo total',                'span', 'varias',     'bueno', null,                              'edentulo',             450],
+            ['diastema',              'Diastema',                      'span', 'varias',     'bueno', null,                              'diastema',             460],
+            ['fusion',                'Fusión',                        'span', 'varias',     'bueno', null,                              'fusion',               470],
+            ['supernumeraria',        'Pieza supernumeraria',          'span', 'varias',     'bueno', null,                              'supernumeraria',       480],
+            ['transposicion',         'Transposición dentaria',        'span', 'varias',     'bueno', null,                              'transposicion',        490],
         ];
 
         // El color (azul/rojo) lo asigna ToothCondition al guardar, según los estados permitidos.

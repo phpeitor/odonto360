@@ -29,11 +29,15 @@ final class ToothSvgBuilder
 
     public const VIEWBOX_HEIGHT = self::BOX_HEIGHT + 4 + self::BODY_HEIGHT + self::GUTTER_HEIGHT;
 
+    /** Lo que un tramo de varias piezas sobresale de la pieza para unirse con la vecina (cubre el hueco entre piezas). */
+    private const SPAN_REACH = 12;
+
     /**
      * @param  ToothDefinition  $def  Definición de la pieza (arco, tipo, nº raíces...).
      * @param  string  $shownNumber  Número/letra ya resuelto (FDI o Universal).
      * @param  array<string, array{code: string, abbreviation: ?string, state: string, glyph: ?string}>  $faces  Hallazgo de cada cara.
      * @param  array<string, array{abbreviation: ?string, state: string, glyph: ?string}>  $findings  Hallazgos de pieza completa por código.
+     * @param  list<array{glyph: ?string, state: string, position: string}>  $spans  Tramo de cada hallazgo de varias piezas (ver SpanLayout).
      * @param  bool  $interactive  Si false, omite Alpine directives y usa colores hardcoded (para PDF).
      */
     public static function render(
@@ -41,8 +45,55 @@ final class ToothSvgBuilder
         string $shownNumber,
         array $faces = [],
         array $findings = [],
+        array $spans = [],
         bool $hasNote = false,
         bool $interactive = true,
+    ): string {
+        $class = $interactive ? ' class="tooth-svg"' : '';
+
+        return sprintf(
+            '<svg viewBox="0 0 100 %d"%s xmlns="http://www.w3.org/2000/svg">%s</svg>',
+            self::VIEWBOX_HEIGHT,
+            $class,
+            self::content($def, $shownNumber, $faces, $findings, $spans, $hasNote, $interactive)
+        );
+    }
+
+    /**
+     * Una fila completa en un solo SVG (para el PDF): los tramos de varias piezas quedan continuos.
+     *
+     * @param  list<array{def: ToothDefinition, shownNumber: string, faces: array, findings: array, spans: array}>  $teeth
+     * @param  float  $gap  Separación entre piezas, en unidades del viewBox (100 = ancho de una pieza).
+     */
+    public static function renderRow(array $teeth, float $gap): string
+    {
+        $width = count($teeth) * 100 + max(count($teeth) - 1, 0) * $gap;
+        $groups = '';
+
+        foreach (array_values($teeth) as $i => $tooth) {
+            $groups .= sprintf(
+                '<g transform="translate(%s,0)">%s</g>',
+                round($i * (100 + $gap), 2),
+                self::content($tooth['def'], $tooth['shownNumber'], $tooth['faces'], $tooth['findings'], $tooth['spans'], false, false)
+            );
+        }
+
+        return sprintf(
+            '<svg viewBox="0 0 %s %d" xmlns="http://www.w3.org/2000/svg">%s</svg>',
+            round($width, 2),
+            self::VIEWBOX_HEIGHT,
+            $groups
+        );
+    }
+
+    private static function content(
+        ToothDefinition $def,
+        string $shownNumber,
+        array $faces,
+        array $findings,
+        array $spans,
+        bool $hasNote,
+        bool $interactive,
     ): string {
         $code = $def->fdi_code;
         $isLower = $def->isLower();
@@ -75,6 +126,10 @@ final class ToothSvgBuilder
             $body .= self::glyph($finding['glyph'] ?? null, ToothCondition::colorForState($finding['state']), $layout);
         }
 
+        foreach ($spans as $span) {
+            $body .= self::spanGlyph($span['glyph'], ToothCondition::colorForState($span['state']), $span['position'], $layout);
+        }
+
         if ($hasNote) {
             $body .= sprintf('<circle cx="88" cy="%d" r="4" fill="#F59E0B" stroke="%s" stroke-width="1"/>', $numberY + 0.5, $ink);
         }
@@ -83,17 +138,8 @@ final class ToothSvgBuilder
         $bodyOffset = $isLower ? self::GUTTER_HEIGHT : self::BOX_HEIGHT + 4;
         $boxY = $isLower ? self::GUTTER_HEIGHT + self::BODY_HEIGHT + 4 : 0;
 
-        $svgBody = sprintf('<g transform="translate(0,%d)">%s</g>', $bodyOffset, $body)
+        return sprintf('<g transform="translate(0,%d)">%s</g>', $bodyOffset, $body)
             .self::buildAbbreviationBox($boxY, self::abbreviations($faces, $findings), $interactive);
-
-        $class = $interactive ? ' class="tooth-svg"' : '';
-
-        return sprintf(
-            '<svg viewBox="0 0 100 %d"%s xmlns="http://www.w3.org/2000/svg">%s</svg>',
-            self::VIEWBOX_HEIGHT,
-            $class,
-            $svgBody
-        );
     }
 
     /**
@@ -428,6 +474,113 @@ final class ToothSvgBuilder
                 $l['numberY'],
                 $color
             ),
+            default => '',
+        };
+    }
+
+    /**
+     * Parte que dibuja una pieza de un hallazgo de varias piezas, según su posición en el tramo
+     * (`start`, `middle`, `end` o `single`). Las líneas sobresalen SPAN_REACH para unirse con la vecina.
+     *
+     * @param  array{crownTop: float, rootBaseY: float, rootApexY: float, numberY: float, occlusalY: float, outward: int}  $l
+     */
+    private static function spanGlyph(?string $glyph, string $color, string $position, array $l): string
+    {
+        $reach = self::SPAN_REACH;
+        // Nivel de los ápices, un poco hacia la corona; `$out` apunta de los ápices hacia la corona.
+        $out = $l['outward'];
+        $apex = $l['rootApexY'] + $out * 5;
+        $crownTop = $l['crownTop'];
+        $isEdge = in_array($position, ['start', 'end', 'single'], true);
+
+        // Tramo que cubre toda la pieza, o que nace en su centro (pilares, brackets).
+        [$fullFrom, $fullTo] = match ($position) {
+            'start' => [4, 100 + $reach],
+            'middle' => [-$reach, 100 + $reach],
+            'end' => [-$reach, 96],
+            default => [4, 96],
+        };
+        [$centerFrom, $centerTo] = match ($position) {
+            'start' => [50, 100 + $reach],
+            'middle' => [-$reach, 100 + $reach],
+            'end' => [-$reach, 50],
+            default => [50, 50],
+        };
+
+        $line = fn (float $x1, float $y1, float $x2, float $y2, float $width = 3.5): string => $x1 === $x2 && $y1 === $y2 ? '' : sprintf(
+            '<line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s" stroke-linecap="butt" pointer-events="none"/>',
+            $x1, $y1, $x2, $y2, $color, $width
+        );
+        $path = fn (string $d, float $width = 3.5): string => sprintf(
+            '<path d="%s" fill="none" stroke="%s" stroke-width="%s" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>',
+            $d, $color, $width
+        );
+
+        return match ($glyph) {
+            // 6.1.29: línea horizontal a nivel de los ápices, con líneas verticales sobre los pilares.
+            'protesis_fija' => $line($centerFrom, $apex, $centerTo, $apex)
+                .($isEdge ? $line(50, $apex - $out * 1.75, 50, $apex + $out * 14) : ''),
+            // 6.1.30 / 6.1.31: dos líneas paralelas a nivel de los ápices.
+            'protesis_completa', 'protesis_removible' => $line($fullFrom, $apex, $fullTo, $apex, 3)
+                .$line($fullFrom, $apex + $out * 7, $fullTo, $apex + $out * 7, 3),
+            // 6.1.1: cuadrados con una cruz en los extremos, unidos por una línea recta.
+            'ortodoncia_fija' => $line(
+                $position === 'start' || $position === 'single' ? 57 : $centerFrom,
+                $apex,
+                $position === 'end' || $position === 'single' ? 43 : $centerTo,
+                $apex
+            ).($isEdge ? sprintf(
+                '<rect x="43" y="%s" width="14" height="14" fill="#FFFFFF" stroke="%s" stroke-width="2.5" pointer-events="none"/>',
+                $apex - 7,
+                $color
+            ).$line(50, $apex - 7, 50, $apex + 7, 2).$line(43, $apex, 57, $apex, 2) : ''),
+            // 6.1.2: línea en zigzag a la altura de los ápices.
+            'ortodoncia_removible' => (function () use ($path, $fullFrom, $fullTo, $apex): string {
+                $points = [];
+
+                for ($x = $fullFrom, $i = 0; $x <= $fullTo; $x += 10, $i++) {
+                    $points[] = sprintf('%s,%s', $x, $apex + ($i % 2 === 0 ? -4 : 4));
+                }
+
+                return $path('M'.implode(' L', $points), 3);
+            })(),
+            // 6.1.7: línea recta horizontal sobre las coronas.
+            'edentulo' => $line($fullFrom, $crownTop + 46, $fullTo, $crownTop + 46, 4),
+            // 6.1.6: paréntesis invertido «)(» entre las dos piezas.
+            'diastema' => match ($position) {
+                'start' => $path(sprintf('M98,%s Q110,%s 98,%s', $crownTop + 18, $crownTop + 46, $crownTop + 74)),
+                'end' => $path(sprintf('M2,%s Q-10,%s 2,%s', $crownTop + 18, $crownTop + 46, $crownTop + 74)),
+                default => '',
+            },
+            // 6.1.11: dos circunferencias interceptadas encerrando los números.
+            'fusion' => in_array($position, ['start', 'end'], true) ? sprintf(
+                '<ellipse cx="%s" cy="%s" rx="44" ry="13" fill="none" stroke="%s" stroke-width="3" pointer-events="none"/>',
+                $position === 'start' ? 64 : 36,
+                $l['numberY'],
+                $color
+            ) : '',
+            // 6.1.26: circunferencia con la «S» entre los ápices de las piezas vecinas.
+            'supernumeraria' => $position === 'start' ? sprintf(
+                '<circle cx="106" cy="%s" r="9" fill="#FFFFFF" stroke="%s" stroke-width="2.5" pointer-events="none"/>'
+                .'<text x="106" y="%s" text-anchor="middle" dominant-baseline="middle" font-family="Helvetica,Arial,sans-serif" '
+                .'font-size="11" font-weight="700" fill="%s" pointer-events="none">S</text>',
+                $apex,
+                $color,
+                $apex + 0.5,
+                $color
+            ) : '',
+            // 6.1.38: dos flechas curvas entrecruzadas a la altura de los números.
+            'transposicion' => $position === 'start' ? (function () use ($path, $color, $l, $out): string {
+                // Bajo los números, hacia las raíces: cada flecha va de una pieza a la otra y se cruzan al medio.
+                $near = $l['numberY'] + $out * 14;
+                $far = $l['numberY'] + $out * 26;
+                $control = $l['numberY'] - $out * 3;
+
+                return $path(sprintf('M40,%s Q100,%s 160,%s', $far, $control, $near), 3)
+                    .$path(sprintf('M160,%s Q100,%s 40,%s', $far, $control, $near), 3)
+                    .self::arrowHead(160, $near + $out * 5, $out, $color)
+                    .self::arrowHead(40, $near + $out * 5, $out, $color);
+            })() : '',
             default => '',
         };
     }

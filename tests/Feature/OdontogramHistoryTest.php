@@ -221,6 +221,7 @@ it('deshace la última acción pendiente', function (): void {
         ->call('selectZone', 11, 'v')
         ->assertSet('pending', [[
             'fdi_code' => 11,
+            'end_fdi_code' => null,
             'face' => 'v',
             'action' => 'apply',
             'condition_code' => 'caries',

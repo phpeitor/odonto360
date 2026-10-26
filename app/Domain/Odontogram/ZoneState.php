@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Domain\Odontogram;
 
 use App\Models\Odontogram;
+use App\Models\OdontogramSpan;
 use App\Models\OdontogramToothFace;
 use App\Models\OdontogramToothFinding;
 use App\Models\ToothCondition;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Lectura y escritura del estado persistido de una zona del odontograma:
@@ -85,6 +87,34 @@ final class ZoneState
             ['odontogram_tooth_id' => $tooth->id, 'condition_id' => $condition->id],
             ['abbreviation' => $abbreviation, 'state' => $state ?? $condition->defaultState()]
         );
+    }
+
+    public static function hasSpan(Odontogram $odontogram, int $conditionId, int $startFdiCode, int $endFdiCode): bool
+    {
+        return self::spanQuery($odontogram, $conditionId, $startFdiCode, $endFdiCode)->exists();
+    }
+
+    /** Registra (o actualiza) un hallazgo de varias piezas. */
+    public static function addSpan(Odontogram $odontogram, ToothCondition $condition, int $startFdiCode, int $endFdiCode, ?string $state): void
+    {
+        OdontogramSpan::updateOrCreate(
+            ['odontogram_id' => $odontogram->id, 'condition_id' => $condition->id, 'start_fdi_code' => $startFdiCode, 'end_fdi_code' => $endFdiCode],
+            ['state' => $state ?? $condition->defaultState()]
+        );
+    }
+
+    public static function removeSpan(Odontogram $odontogram, int $conditionId, int $startFdiCode, int $endFdiCode): void
+    {
+        self::spanQuery($odontogram, $conditionId, $startFdiCode, $endFdiCode)->delete();
+    }
+
+    private static function spanQuery(Odontogram $odontogram, int $conditionId, int $startFdiCode, int $endFdiCode): Builder
+    {
+        return OdontogramSpan::query()
+            ->where('odontogram_id', $odontogram->id)
+            ->where('condition_id', $conditionId)
+            ->where('start_fdi_code', $startFdiCode)
+            ->where('end_fdi_code', $endFdiCode);
     }
 
     public static function removeFinding(Odontogram $odontogram, int $fdiCode, int $conditionId): void

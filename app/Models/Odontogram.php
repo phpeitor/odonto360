@@ -49,6 +49,15 @@ class Odontogram extends Model
         );
     }
 
+    /** Hallazgos que abarcan varias piezas (prótesis, aparatos ortodónticos, diastema…). */
+    public function spans(): HasMany
+    {
+        return $this->hasMany(
+            related: OdontogramSpan::class,
+            foreignKey: 'odontogram_id'
+        );
+    }
+
     public function treatmentLog(): HasMany
     {
         return $this->hasMany(

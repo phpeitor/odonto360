@@ -133,7 +133,18 @@
                 </div>
 
                 <span class="ml-auto text-gray-500">
-                    {{ $active->target === 'face' ? 'Clic en la cara afectada' : 'Clic en la pieza' }}
+                    @if ($active->appliesToSpan())
+                        @php($spanKind = \App\Domain\Odontogram\SpanLayout::kind($active->glyph))
+                        @if ($spanKind === 'arch')
+                            Clic en una pieza de la fila: se marca toda la fila
+                        @elseif ($spanStartFdi)
+                            Pieza inicial {{ $spanStartFdi }} · clic en la pieza {{ $spanKind === 'pair' ? 'contigua' : 'final' }} (o de nuevo en {{ $spanStartFdi }} para cancelar)
+                        @else
+                            Clic en la pieza inicial y luego en la {{ $spanKind === 'pair' ? 'contigua' : 'final' }}
+                        @endif
+                    @else
+                        {{ $active->target === 'face' ? 'Clic en la cara afectada' : 'Clic en la pieza' }}
+                    @endif
                 </span>
             </div>
         @endif
@@ -160,7 +171,7 @@
                 <div class="flex justify-center overflow-x-auto px-2 pt-3">
                     <div class="flex gap-1 sm:gap-2">
                         @foreach ($row as $definition)
-                            <div class="tooth-wrap group relative">
+                            <div @class(['tooth-wrap group relative rounded-md', 'ring-2 ring-primary-500 ring-offset-2' => $spanStartFdi === $definition->fdi_code])>
                                 {!! $this->toothSvg($definition) !!}
                                 <button type="button"
                                     wire:click="openToothNote({{ $definition->fdi_code }})"
@@ -181,14 +192,18 @@
             @forelse ($this->findings as $finding)
                 <div class="flex flex-wrap items-center gap-2 text-sm">
                     <span class="h-2.5 w-2.5 rounded-full" style="background: {{ $finding['color'] }}"></span>
-                    <span class="font-mono font-semibold">{{ $finding['fdi_code'] }}</span>
+                    <span class="font-mono font-semibold">{{ $finding['teeth_label'] }}</span>
                     @if ($finding['abbreviation'])
                         <span class="font-mono text-xs font-bold" style="color: {{ $finding['color'] }}">{{ $finding['abbreviation'] }}</span>
                     @endif
                     <span>{{ $finding['label'] }} ({{ $finding['face_label'] }})</span>
                     <span class="text-xs" style="color: {{ $finding['color'] }}">{{ \App\Models\ToothCondition::STATE_LABELS[$finding['state']] ?? '' }}</span>
                     <button type="button"
-                        wire:click="removeFinding({{ $finding['fdi_code'] }}, {{ $finding['face'] ? "'".$finding['face']."'" : 'null' }}, '{{ $finding['code'] }}')"
+                        @if ($finding['end_fdi_code'])
+                            wire:click="removeSpan('{{ $finding['code'] }}', {{ $finding['fdi_code'] }}, {{ $finding['end_fdi_code'] }})"
+                        @else
+                            wire:click="removeFinding({{ $finding['fdi_code'] }}, {{ $finding['face'] ? "'".$finding['face']."'" : 'null' }}, '{{ $finding['code'] }}')"
+                        @endif
                         class="ml-auto rounded-lg border border-gray-300 px-2 py-0.5 text-[10px] font-semibold text-gray-600 hover:bg-gray-50">
                         Quitar
                     </button>
@@ -206,8 +221,8 @@
             @forelse ($this->history as $entry)
                 @php($struck = $entry->voided_at ? 'text-gray-400 line-through' : '')
                 <div @class(['flex flex-wrap items-center gap-2 text-sm', 'text-gray-400' => $entry->voided_at])>
-                    <span class="font-mono font-semibold {{ $struck }}">{{ $entry->fdi_code }}</span>
-                    <span class="text-xs text-gray-500 {{ $struck }}">{{ $this->faceLabel($entry->face) }}</span>
+                    <span class="font-mono font-semibold {{ $struck }}">{{ $entry->fdi_code }}{{ ($entry->end_fdi_code ?? null) ? '–'.$entry->end_fdi_code : '' }}</span>
+                    <span class="text-xs text-gray-500 {{ $struck }}">{{ ($entry->end_fdi_code ?? null) ? 'Varias piezas' : $this->faceLabel($entry->face) }}</span>
                     @if ($entry->condition)
                         <span class="inline-flex items-center gap-1.5 text-xs {{ $struck }}">
                             <span class="h-2.5 w-2.5 rounded-full" style="background: {{ \App\Models\ToothCondition::colorForState($entry->state ?? $entry->condition->defaultState()) }}"></span>

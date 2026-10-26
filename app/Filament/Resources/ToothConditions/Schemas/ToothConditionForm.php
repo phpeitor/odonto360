@@ -27,6 +27,16 @@ class ToothConditionForm
         'giroversion' => 'Flecha curva',
         'clavija' => 'Triángulo',
         'geminacion' => 'Círculo en el número',
+        'protesis_fija' => 'Varias piezas: línea con pilares',
+        'protesis_removible' => 'Varias piezas: dos líneas paralelas',
+        'protesis_completa' => 'Fila completa: dos líneas paralelas',
+        'edentulo' => 'Fila completa: línea sobre las coronas',
+        'ortodoncia_fija' => 'Varias piezas: cuadrados con cruz unidos',
+        'ortodoncia_removible' => 'Varias piezas: zigzag',
+        'diastema' => 'Dos piezas: paréntesis invertido',
+        'fusion' => 'Dos piezas: círculos interceptados',
+        'supernumeraria' => 'Dos piezas: círculo con «S»',
+        'transposicion' => 'Dos piezas: flechas cruzadas',
     ];
 
     public static function configure(Schema $schema): Schema
@@ -41,7 +51,7 @@ class ToothConditionForm
                     ->required(),
                 Select::make('target')
                     ->label('Aplicación')
-                    ->options(['face' => 'Cara', 'tooth' => 'Diente', 'both' => 'Ambos'])
+                    ->options(['face' => 'Cara', 'tooth' => 'Diente', 'both' => 'Ambos', 'span' => 'Varias piezas'])
                     ->required(),
                 Select::make('category')
                     ->label('Categoría')

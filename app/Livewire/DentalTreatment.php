@@ -53,10 +53,15 @@ class DentalTreatment extends Component implements HasActions, HasSchemas, HasTa
             ->columns([
                 TextColumn::make('fdi_code')
                     ->label('Diente')
+                    ->formatStateUsing(fn (OdontogramTreatmentLog $record): string => $record->teethLabel())
                     ->sortable(),
                 TextColumn::make('face')
                     ->label('Cara')
-                    ->formatStateUsing(fn ($state): string => $state ? (ToothCondition::FACE_LABELS[$state] ?? $state) : 'Pieza completa')
+                    ->state(fn (OdontogramTreatmentLog $record): string => match (true) {
+                        $record->end_fdi_code !== null => 'Varias piezas',
+                        $record->face !== null => ToothCondition::FACE_LABELS[$record->face] ?? $record->face,
+                        default => 'Pieza completa',
+                    })
                     ->sortable(),
                 TextColumn::make('condition.label')
                     ->label('Condición')

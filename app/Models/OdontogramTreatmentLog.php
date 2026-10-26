@@ -12,6 +12,7 @@ class OdontogramTreatmentLog extends Model
     protected $fillable = [
         'odontogram_id',
         'fdi_code',
+        'end_fdi_code',
         'face',
         'action',
         'condition_id',
@@ -27,6 +28,7 @@ class OdontogramTreatmentLog extends Model
 
     protected $casts = [
         'fdi_code' => 'integer',
+        'end_fdi_code' => 'integer',
         'registered_at' => 'datetime',
         'voided_at' => 'datetime',
     ];
@@ -45,6 +47,12 @@ class OdontogramTreatmentLog extends Model
     public function voidedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'voided_by');
+    }
+
+    /** Pieza o tramo de piezas del registro, p. ej. «16» o «13–23». */
+    public function teethLabel(): string
+    {
+        return $this->end_fdi_code ? "{$this->fdi_code}–{$this->end_fdi_code}" : (string) $this->fdi_code;
     }
 
     public function isVoided(): bool
