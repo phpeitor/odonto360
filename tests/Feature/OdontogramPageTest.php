@@ -4,6 +4,7 @@ use App\Enum\PatientSex;
 use App\Filament\Pages\OdontogramBoard;
 use App\Filament\Resources\Patients\PatientResource;
 use App\Models\Patient;
+use App\Models\ToothDefinition;
 use App\Models\User;
 use Database\Seeders\ToothConditionSeeder;
 use Database\Seeders\ToothDefinitionSeeder;
@@ -125,14 +126,14 @@ it('ignores unknown dentition and numbering values', function (): void {
 
     Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $patient])
         ->call('setDentition', 'hacked')
-        ->assertSet('dentition', 'adult')
+        ->assertSet('dentition', 'mixed')
         ->call('setNumberingSystem', 'hacked')
         ->assertSet('numberingSystem', 'fdi')
         ->call('setNumberingSystem', 'universal')
         ->assertSet('numberingSystem', 'universal');
 
     expect($patient->odontogram()->first()->only(['dentition', 'numbering_system']))
-        ->toBe(['dentition' => 'adult', 'numbering_system' => 'universal']);
+        ->toBe(['dentition' => 'mixed', 'numbering_system' => 'universal']);
 });
 
 it('blocks the adult dentition for patients under 6 and starts them on child', function (): void {
@@ -148,11 +149,75 @@ it('blocks the adult dentition for patients under 6 and starts them on child', f
     $sixYearsOld = Patient::factory()->create(['birth_date' => '2020-10-21']);
 
     Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $sixYearsOld])
-        ->assertSet('dentition', 'adult')
+        ->assertSet('dentition', 'mixed')
         ->call('setDentition', 'child')
         ->assertSet('dentition', 'child')
         ->call('setDentition', 'adult')
         ->assertSet('dentition', 'adult');
+});
+
+it('allows the mixed dentition from 6 to 17 years and opens it by default up to 12', function (): void {
+    $this->travelTo('2026-10-21');
+
+    $ages = [
+        'cinco años' => ['2021-10-22', false, 'child'],
+        'seis años' => ['2020-10-21', true, 'mixed'],
+        'doce años' => ['2014-10-21', true, 'mixed'],
+        'trece años' => ['2013-10-21', true, 'adult'],
+        'diecisiete años' => ['2008-10-22', true, 'adult'],
+        'mayor de edad' => ['2008-10-21', false, 'adult'],
+    ];
+
+    foreach ($ages as $label => [$birthDate, $allowsMixed, $default]) {
+        $patient = Patient::factory()->make(['birth_date' => $birthDate]);
+
+        expect($patient->allowsDentition('mixed'))->toBe($allowsMixed, $label)
+            ->and($patient->defaultDentition())->toBe($default, $label);
+    }
+
+    expect(Patient::factory()->make(['birth_date' => null])->defaultDentition())->toBe('adult');
+});
+
+it('draws the mixed dentition in four rows with the temporary teeth next to the midline', function (): void {
+    $this->seed([ToothConditionSeeder::class, ToothDefinitionSeeder::class]);
+    $patient = Patient::factory()->create(['birth_date' => now()->subYears(8)->toDateString()]);
+
+    $board = Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $patient])
+        ->assertSet('dentition', 'mixed')
+        ->assertSee('Mixta · 52');
+
+    $rows = collect($board->instance()->archRows)
+        ->map(fn (array $archRows): array => array_map(
+            fn ($row): array => [$row->count(), $row->first()->fdi_code],
+            $archRows,
+        ))
+        ->all();
+
+    expect($rows)->toBe([
+        'upper' => [[16, 18], [10, 55]],
+        'lower' => [[10, 85], [16, 48]],
+    ]);
+
+    $board->call('setNumberingSystem', 'universal');
+
+    expect($board->instance()->toothSvg(ToothDefinition::where('fdi_code', 55)->first()))
+        ->toContain('>A<')
+        ->and($board->instance()->toothSvg(ToothDefinition::where('fdi_code', 18)->first()))
+        ->toContain('>1<');
+});
+
+it('does not allow the mixed dentition for adults or patients under 6', function (): void {
+    $adult = Patient::factory()->create(['birth_date' => '1991-02-03']);
+
+    Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $adult])
+        ->call('setDentition', 'mixed')
+        ->assertSet('dentition', 'adult');
+
+    $toddler = Patient::factory()->create(['birth_date' => now()->subYears(3)->toDateString()]);
+
+    Livewire::test(App\Livewire\OdontogramBoard::class, ['patient' => $toddler])
+        ->call('setDentition', 'mixed')
+        ->assertSet('dentition', 'child');
 });
 
 it('records which user registered each treatment', function (): void {

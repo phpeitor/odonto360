@@ -8,7 +8,6 @@ use App\Models\Odontogram;
 use App\Models\OdontogramTooth;
 use App\Models\Patient;
 use App\Models\ToothCondition;
-use App\Models\ToothDefinition;
 use DragonOfMercy\PhpPdf\Color;
 use DragonOfMercy\PhpPdf\Document;
 use DragonOfMercy\PhpPdf\Font;
@@ -174,7 +173,11 @@ final class OdontogramPdfExport
 
         $this->y += $boxHeight + 5;
 
-        $dentition = $odontogram->dentition === 'child' ? 'Infantil (20 piezas)' : 'Adulto (32 piezas)';
+        $dentition = match ($odontogram->dentition) {
+            'child' => 'Infantil (20 piezas)',
+            'mixed' => 'Mixta (52 piezas)',
+            default => 'Adulto (32 piezas)',
+        };
         $numbering = $odontogram->numbering_system === 'universal' ? 'Universal' : 'FDI';
         $practitioner = $odontogram->practitioner?->name ?? 'Sin asignar';
 
@@ -192,7 +195,6 @@ final class OdontogramPdfExport
 
     private function renderOdontogramChart(Odontogram $odontogram): void
     {
-        $dentition = $odontogram->dentition;
         $numberingSystem = $odontogram->numbering_system;
 
         $teethByCode = $odontogram->teeth()
@@ -200,46 +202,49 @@ final class OdontogramPdfExport
             ->get()
             ->keyBy('fdi_code');
 
-        $definitions = ToothDefinition::query()
-            ->where('dentition', $dentition)
-            ->orderBy('display_order')
-            ->get()
-            ->groupBy('arch');
+        $rows = DentitionLayout::rows($odontogram->dentition);
+        $rowCount = count($rows['upper']) + count($rows['lower']);
 
-        $upper = $definitions['upper'] ?? collect();
-        $lower = $definitions['lower'] ?? collect();
-
-        $chartHeight = self::TOOTH_HEIGHT * 2 + 14;
+        // Filas de cada arcada separadas 2 mm; 6 mm para la línea media y 6 mm de cierre.
+        $chartHeight = self::TOOTH_HEIGHT * $rowCount + 2 * ($rowCount - 2) + 14;
         $this->ensureSpace($chartHeight);
 
-        $rowWidth = max($upper->count(), $lower->count()) * (self::TOOTH_WIDTH + self::TOOTH_GAP) - self::TOOTH_GAP;
-        $startX = (self::PAGE_WIDTH - $rowWidth) / 2;
+        $widestRow = max(array_map(fn (Collection $row): int => $row->count(), [...$rows['upper'], ...$rows['lower']]));
+        $chartWidth = $widestRow * (self::TOOTH_WIDTH + self::TOOTH_GAP) - self::TOOTH_GAP;
+        $chartStartX = (self::PAGE_WIDTH - $chartWidth) / 2;
 
-        $this->write(self::MARGIN, $this->y + self::TOOTH_HEIGHT / 2, 'DER', $this->boldFont, 7, self::MUTED);
-        $this->writeRight(self::MARGIN + self::CONTENT_WIDTH, $this->y + self::TOOTH_HEIGHT / 2, 'IZQ', $this->boldFont, 7, self::MUTED);
+        foreach (['upper', 'lower'] as $arch) {
+            if ($arch === 'lower') {
+                $label = 'LÍNEA MEDIA';
+                $labelWidth = $this->page->stringWidth($label, $this->font, 6.5);
+                $center = self::PAGE_WIDTH / 2;
+                $this->hr($this->y + 2, $chartStartX, $center - $labelWidth / 2 - 3);
+                $this->hr($this->y + 2, $center + $labelWidth / 2 + 3, $chartStartX + $chartWidth);
+                $this->write($center - $labelWidth / 2, $this->y + 3.2, $label, $this->font, 6.5, self::MUTED);
+                $this->y += 6;
+            }
 
-        $this->renderArch($upper, $teethByCode, $dentition, $numberingSystem, $startX, $this->y);
-        $this->y += self::TOOTH_HEIGHT + 2;
+            $archHeight = self::TOOTH_HEIGHT * count($rows[$arch]) + 2 * (count($rows[$arch]) - 1);
+            $this->write(self::MARGIN, $this->y + $archHeight / 2, 'DER', $this->boldFont, 7, self::MUTED);
+            $this->writeRight(self::MARGIN + self::CONTENT_WIDTH, $this->y + $archHeight / 2, 'IZQ', $this->boldFont, 7, self::MUTED);
 
-        $label = 'LÍNEA MEDIA';
-        $labelWidth = $this->page->stringWidth($label, $this->font, 6.5);
-        $center = self::PAGE_WIDTH / 2;
-        $this->hr($this->y + 2, $startX, $center - $labelWidth / 2 - 3);
-        $this->hr($this->y + 2, $center + $labelWidth / 2 + 3, $startX + $rowWidth);
-        $this->write($center - $labelWidth / 2, $this->y + 3.2, $label, $this->font, 6.5, self::MUTED);
-        $this->y += 6;
+            foreach ($rows[$arch] as $i => $row) {
+                if ($i > 0) {
+                    $this->y += 2;
+                }
 
-        $this->write(self::MARGIN, $this->y + self::TOOTH_HEIGHT / 2, 'DER', $this->boldFont, 7, self::MUTED);
-        $this->writeRight(self::MARGIN + self::CONTENT_WIDTH, $this->y + self::TOOTH_HEIGHT / 2, 'IZQ', $this->boldFont, 7, self::MUTED);
+                $rowWidth = $row->count() * (self::TOOTH_WIDTH + self::TOOTH_GAP) - self::TOOTH_GAP;
+                $this->renderArch($row, $teethByCode, $numberingSystem, (self::PAGE_WIDTH - $rowWidth) / 2, $this->y);
+                $this->y += self::TOOTH_HEIGHT;
+            }
 
-        $this->renderArch($lower, $teethByCode, $dentition, $numberingSystem, $startX, $this->y);
-        $this->y += self::TOOTH_HEIGHT + 6;
+            $this->y += $arch === 'upper' ? 2 : 6;
+        }
     }
 
     private function renderArch(
         Collection $definitions,
         Collection $teethByCode,
-        string $dentition,
         string $numberingSystem,
         float $startX,
         float $y,
@@ -251,7 +256,7 @@ final class OdontogramPdfExport
 
             $svg = ToothSvgBuilder::render(
                 def: $def,
-                shownNumber: ToothNumbering::display($def->fdi_code, $dentition, $numberingSystem),
+                shownNumber: ToothNumbering::display($def->fdi_code, $def->dentition, $numberingSystem),
                 faceMap: $faceMap,
                 wholeCode: $wholeCode,
                 conditionColors: $this->conditionColors,

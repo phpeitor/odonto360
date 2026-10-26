@@ -82,7 +82,7 @@ class OdontogramBoard extends Page implements HasSchemas
         return $schema
             ->components([
                 Section::make('Datos personales')
-                    ->description('datos del paciente y odontograma')
+                    ->description('Datos del paciente y odontograma')
                     ->columns(3)
                     ->schema([
                         Select::make('patientId')
