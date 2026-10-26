@@ -6,9 +6,10 @@ namespace App\Domain\Odontogram;
 
 use App\Models\Odontogram;
 use App\Models\OdontogramTooth;
+use App\Models\OdontogramToothFace;
+use App\Models\OdontogramToothFinding;
 use App\Models\Patient;
 use App\Models\ToothCondition;
-use App\Models\ToothDefinition;
 use DragonOfMercy\PhpPdf\Color;
 use DragonOfMercy\PhpPdf\Document;
 use DragonOfMercy\PhpPdf\Font;
@@ -33,11 +34,12 @@ final class OdontogramPdfExport
     private const PAGE_WIDTH = 297.0;
 
     /** Límite inferior del contenido; debajo va el pie de página. */
-    private const BOTTOM = 190.0;
+    private const BOTTOM = 193.0;
 
     private const TOOTH_WIDTH = 12.0;
 
-    private const TOOTH_HEIGHT = 21.6;
+    /** En la dentición mixta (4 filas) las piezas se achican para que el gráfico quepa en una hoja. */
+    private const MIXED_TOOTH_WIDTH = 9.5;
 
     private const TOOTH_GAP = 1.0;
 
@@ -66,8 +68,6 @@ final class OdontogramPdfExport
 
     private Collection $conditionsByCode;
 
-    private array $conditionColors;
-
     private Patient $patient;
 
     public function __construct()
@@ -82,8 +82,6 @@ final class OdontogramPdfExport
         $this->conditionsByCode = ToothCondition::orderBy('sort_order')
             ->get()
             ->keyBy('code');
-
-        $this->conditionColors = $this->conditionsByCode->map->color->all();
     }
 
     public function generate(Odontogram $odontogram): string
@@ -97,8 +95,14 @@ final class OdontogramPdfExport
         $this->renderFindings($odontogram);
         $this->renderHistory($odontogram);
 
+        $this->renderToothNotes($odontogram);
+
+        if (trim((string) $odontogram->specifications) !== '') {
+            $this->renderParagraphs('Especificaciones', (string) $odontogram->specifications);
+        }
+
         if (trim((string) $odontogram->notes) !== '') {
-            $this->renderNotes($odontogram);
+            $this->renderParagraphs('Observaciones', (string) $odontogram->notes);
         }
 
         $this->renderFooters();
@@ -172,7 +176,11 @@ final class OdontogramPdfExport
 
         $this->y += $boxHeight + 5;
 
-        $dentition = $odontogram->dentition === 'child' ? 'Infantil (20 piezas)' : 'Adulto (32 piezas)';
+        $dentition = match ($odontogram->dentition) {
+            'child' => 'Infantil (20 piezas)',
+            'mixed' => 'Mixta (52 piezas)',
+            default => 'Adulto (32 piezas)',
+        };
         $numbering = $odontogram->numbering_system === 'universal' ? 'Universal' : 'FDI';
         $practitioner = $odontogram->practitioner?->name ?? 'Sin asignar';
 
@@ -190,111 +198,114 @@ final class OdontogramPdfExport
 
     private function renderOdontogramChart(Odontogram $odontogram): void
     {
-        $dentition = $odontogram->dentition;
         $numberingSystem = $odontogram->numbering_system;
 
         $teethByCode = $odontogram->teeth()
-            ->with(['wholeCondition', 'faces.condition'])
+            ->with(['faces.condition', 'findings.condition'])
             ->get()
             ->keyBy('fdi_code');
 
-        $definitions = ToothDefinition::query()
-            ->where('dentition', $dentition)
-            ->orderBy('display_order')
-            ->get()
-            ->groupBy('arch');
+        $rows = DentitionLayout::rows($odontogram->dentition);
+        $toothWidth = $odontogram->dentition === 'mixed' ? self::MIXED_TOOTH_WIDTH : self::TOOTH_WIDTH;
+        // Proporción del viewBox de ToothSvgBuilder (100 de ancho, con el recuadro de siglas).
+        $toothHeight = $toothWidth * ToothSvgBuilder::VIEWBOX_HEIGHT / 100;
+        $rowCount = count($rows['upper']) + count($rows['lower']);
 
-        $upper = $definitions['upper'] ?? collect();
-        $lower = $definitions['lower'] ?? collect();
-
-        $chartHeight = self::TOOTH_HEIGHT * 2 + 14;
+        // Filas de cada arcada separadas 2 mm; 6 mm para la línea media y 6 mm de cierre.
+        $chartHeight = $toothHeight * $rowCount + 2 * ($rowCount - 2) + 14;
         $this->ensureSpace($chartHeight);
 
-        $rowWidth = max($upper->count(), $lower->count()) * (self::TOOTH_WIDTH + self::TOOTH_GAP) - self::TOOTH_GAP;
-        $startX = (self::PAGE_WIDTH - $rowWidth) / 2;
+        $widestRow = max(array_map(fn (Collection $row): int => $row->count(), [...$rows['upper'], ...$rows['lower']]));
+        $chartWidth = $widestRow * ($toothWidth + self::TOOTH_GAP) - self::TOOTH_GAP;
+        $chartStartX = (self::PAGE_WIDTH - $chartWidth) / 2;
 
-        $this->write(self::MARGIN, $this->y + self::TOOTH_HEIGHT / 2, 'DER', $this->boldFont, 7, self::MUTED);
-        $this->writeRight(self::MARGIN + self::CONTENT_WIDTH, $this->y + self::TOOTH_HEIGHT / 2, 'IZQ', $this->boldFont, 7, self::MUTED);
+        foreach (['upper', 'lower'] as $arch) {
+            if ($arch === 'lower') {
+                $label = 'LÍNEA MEDIA';
+                $labelWidth = $this->page->stringWidth($label, $this->font, 6.5);
+                $center = self::PAGE_WIDTH / 2;
+                $this->hr($this->y + 2, $chartStartX, $center - $labelWidth / 2 - 3);
+                $this->hr($this->y + 2, $center + $labelWidth / 2 + 3, $chartStartX + $chartWidth);
+                $this->write($center - $labelWidth / 2, $this->y + 3.2, $label, $this->font, 6.5, self::MUTED);
+                $this->y += 6;
+            }
 
-        $this->renderArch($upper, $teethByCode, $dentition, $numberingSystem, $startX, $this->y);
-        $this->y += self::TOOTH_HEIGHT + 2;
+            $archHeight = $toothHeight * count($rows[$arch]) + 2 * (count($rows[$arch]) - 1);
+            $this->write(self::MARGIN, $this->y + $archHeight / 2, 'DER', $this->boldFont, 7, self::MUTED);
+            $this->writeRight(self::MARGIN + self::CONTENT_WIDTH, $this->y + $archHeight / 2, 'IZQ', $this->boldFont, 7, self::MUTED);
 
-        $label = 'LÍNEA MEDIA';
-        $labelWidth = $this->page->stringWidth($label, $this->font, 6.5);
-        $center = self::PAGE_WIDTH / 2;
-        $this->hr($this->y + 2, $startX, $center - $labelWidth / 2 - 3);
-        $this->hr($this->y + 2, $center + $labelWidth / 2 + 3, $startX + $rowWidth);
-        $this->write($center - $labelWidth / 2, $this->y + 3.2, $label, $this->font, 6.5, self::MUTED);
-        $this->y += 6;
+            foreach ($rows[$arch] as $i => $row) {
+                if ($i > 0) {
+                    $this->y += 2;
+                }
 
-        $this->write(self::MARGIN, $this->y + self::TOOTH_HEIGHT / 2, 'DER', $this->boldFont, 7, self::MUTED);
-        $this->writeRight(self::MARGIN + self::CONTENT_WIDTH, $this->y + self::TOOTH_HEIGHT / 2, 'IZQ', $this->boldFont, 7, self::MUTED);
+                $rowWidth = $row->count() * ($toothWidth + self::TOOTH_GAP) - self::TOOTH_GAP;
+                $this->renderArch($row, $teethByCode, $numberingSystem, (self::PAGE_WIDTH - $rowWidth) / 2, $this->y, $toothWidth, $toothHeight);
+                $this->y += $toothHeight;
+            }
 
-        $this->renderArch($lower, $teethByCode, $dentition, $numberingSystem, $startX, $this->y);
-        $this->y += self::TOOTH_HEIGHT + 6;
+            $this->y += $arch === 'upper' ? 2 : 6;
+        }
     }
 
     private function renderArch(
         Collection $definitions,
         Collection $teethByCode,
-        string $dentition,
         string $numberingSystem,
         float $startX,
         float $y,
+        float $toothWidth,
+        float $toothHeight,
     ): void {
         foreach ($definitions->values() as $i => $def) {
-            $state = $teethByCode->get($def->fdi_code);
-            $faceMap = $state?->faceMap() ?? OdontogramTooth::DEFAULT_FACE_MAP;
-            $wholeCode = $state?->wholeCondition?->code;
+            $tooth = $teethByCode->get($def->fdi_code);
 
             $svg = ToothSvgBuilder::render(
                 def: $def,
-                shownNumber: ToothNumbering::display($def->fdi_code, $dentition, $numberingSystem),
-                faceMap: $faceMap,
-                wholeCode: $wholeCode,
-                conditionColors: $this->conditionColors,
+                shownNumber: ToothNumbering::display($def->fdi_code, $def->dentition, $numberingSystem),
+                faces: $tooth?->faces->mapWithKeys(fn (OdontogramToothFace $face): array => [$face->face => [
+                    'code' => $face->condition->code,
+                    'abbreviation' => $face->abbreviation,
+                    'state' => $face->state ?? $face->condition->defaultState(),
+                    'glyph' => $face->condition->glyph,
+                ]])->all() ?? [],
+                findings: $tooth?->findings->mapWithKeys(fn (OdontogramToothFinding $finding): array => [$finding->condition->code => [
+                    'abbreviation' => $finding->abbreviation,
+                    'state' => $finding->state,
+                    'glyph' => $finding->condition->glyph,
+                ]])->all() ?? [],
                 interactive: false,
             );
 
-            $x = $startX + $i * (self::TOOTH_WIDTH + self::TOOTH_GAP);
-            $this->page->image(Image::fromBytes($svg), $x, $y, self::TOOTH_WIDTH, self::TOOTH_HEIGHT);
+            $x = $startX + $i * ($toothWidth + self::TOOTH_GAP);
+            $this->page->image(Image::fromBytes($svg), $x, $y, $toothWidth, $toothHeight);
         }
     }
 
-    /** Leyenda de colores: solo las condiciones distintas de «sano». */
+    /** Leyenda de colores de la NTS N° 188-MINSA/DGIESP-2022 (5.13): solo azul y rojo. */
     private function renderLegend(): void
     {
-        $items = $this->conditionsByCode->reject(fn (ToothCondition $c): bool => $c->code === ToothCondition::CODE_SANO);
-
-        if ($items->isEmpty()) {
-            return;
-        }
-
         $this->ensureSpace(10);
         $x = self::MARGIN;
 
-        foreach ($items as $condition) {
-            $width = 6 + $this->page->stringWidth($condition->label, $this->font, 7.5) + 6;
-
-            if ($x + $width > self::MARGIN + self::CONTENT_WIDTH) {
-                $x = self::MARGIN;
-                $this->y += 5;
-                $this->ensureSpace(5);
-            }
-
-            $this->page->setFillColor(Color::hex($condition->color));
+        foreach ([
+            ToothCondition::STATE_GOOD => 'Azul: buen estado',
+            ToothCondition::STATE_BAD => 'Rojo: mal estado, temporal o patológico',
+        ] as $state => $label) {
+            $this->page->setFillColor(Color::hex(ToothCondition::colorForState($state)));
             $this->page->circle($x + 1.5, $this->y + 1.7, 1.3)->fill();
-            $this->write($x + 4.2, $this->y + 2.6, $condition->label, $this->font, 7.5, self::INK);
-            $x += $width;
+            $this->write($x + 4.2, $this->y + 2.6, $label, $this->font, 7.5, self::INK);
+            $x += 6 + $this->page->stringWidth($label, $this->font, 7.5) + 6;
         }
 
+        $this->writeRight(self::MARGIN + self::CONTENT_WIDTH, $this->y + 2.6, 'NTS N° 188-MINSA/DGIESP-2022', $this->font, 7.5, self::MUTED);
         $this->y += 10;
     }
 
     private function renderFindings(Odontogram $odontogram): void
     {
         $findings = $this->collectFindings(
-            $odontogram->teeth()->with(['wholeCondition', 'faces.condition'])->get()
+            $odontogram->teeth()->with(['faces.condition', 'findings.condition'])->orderBy('fdi_code')->get()
         );
 
         $this->sectionHeader('Hallazgos', 12);
@@ -326,7 +337,8 @@ final class OdontogramPdfExport
                 $x = self::MARGIN + $col * $columnWidth;
                 $this->page->setFillColor(Color::hex($finding['color']));
                 $this->page->circle($x + 1.5, $this->y + 1.8, 1.4)->fill();
-                $text = "{$finding['fdi']} — {$finding['label']} ({$finding['face']})";
+                $abbreviation = $finding['abbreviation'] ? "{$finding['abbreviation']} " : '';
+                $text = "{$finding['fdi']} — {$abbreviation}{$finding['label']} ({$finding['face']})";
                 $this->write($x + 4.5, $this->y + 2.8, $this->fit($text, $columnWidth - 7, $this->font, 8.5), $this->font, 8.5, self::INK);
             }
 
@@ -336,17 +348,18 @@ final class OdontogramPdfExport
         $this->y += 5;
     }
 
-    /** @return list<array{fdi: int, label: string, color: string, face: string}> */
+    /** @return list<array{fdi: int, label: string, abbreviation: ?string, color: string, face: string}> */
     private function collectFindings(Collection $teeth): array
     {
         $findings = [];
 
         foreach ($teeth as $tooth) {
-            if ($tooth->wholeCondition && $tooth->wholeCondition->code !== ToothCondition::CODE_SANO) {
+            foreach ($tooth->findings as $finding) {
                 $findings[] = [
                     'fdi' => $tooth->fdi_code,
-                    'label' => $tooth->wholeCondition->label,
-                    'color' => $tooth->wholeCondition->color,
+                    'label' => $finding->condition->label,
+                    'abbreviation' => $finding->abbreviation,
+                    'color' => ToothCondition::colorForState($finding->state),
                     'face' => 'Pieza completa',
                 ];
             }
@@ -356,7 +369,8 @@ final class OdontogramPdfExport
                     $findings[] = [
                         'fdi' => $tooth->fdi_code,
                         'label' => $face->condition->label,
-                        'color' => $face->condition->color,
+                        'abbreviation' => $face->abbreviation,
+                        'color' => ToothCondition::colorForState($face->state ?? $face->condition->defaultState()),
                         'face' => ToothCondition::FACE_LABELS[$face->face] ?? $face->face,
                     ];
                 }
@@ -369,8 +383,9 @@ final class OdontogramPdfExport
     private function renderHistory(Odontogram $odontogram): void
     {
         $log = $odontogram->treatmentLog()
-            ->with(['condition', 'user'])
+            ->with(['condition', 'user', 'voidedBy'])
             ->orderByDesc('registered_at')
+            ->orderByDesc('id')
             ->get();
 
         if ($log->isEmpty()) {
@@ -401,9 +416,11 @@ final class OdontogramPdfExport
                 $entry->registered_at->format('d/m/Y H:i'),
                 (string) $entry->fdi_code,
                 $faceLabel,
-                $entry->condition?->label ?? '—',
+                $entry->condition ? trim(($entry->abbreviation ? "{$entry->abbreviation} · " : '').$entry->condition->label) : '—',
                 $entry->user?->name ?? '—',
-                (string) ($entry->observation ?? ''),
+                trim(($entry->voided_at
+                    ? 'ANULADO'.($entry->voidedBy ? " por {$entry->voidedBy->name}" : '')." el {$entry->voided_at->format('d/m/Y H:i')}. "
+                    : '').($entry->action === 'clear' ? 'Borrado. ' : '').($entry->observation ?? '')),
             ];
 
             $wrapped = [];
@@ -411,7 +428,7 @@ final class OdontogramPdfExport
                 $wrapped[$c] = $this->wrap($text, $columns[$c][2] - 3, $this->font, 8);
             }
 
-            return ['cells' => $wrapped, 'height' => max(array_map('count', $wrapped)) * 3.8 + 2.4];
+            return ['voided' => $entry->voided_at !== null, 'cells' => $wrapped, 'height' => max(array_map('count', $wrapped)) * 3.8 + 2.4];
         })->all();
 
         $this->sectionHeader('Historial de tratamientos', 6.4 + $rows[0]['height']);
@@ -428,7 +445,7 @@ final class OdontogramPdfExport
 
             foreach ($row['cells'] as $c => $textLines) {
                 foreach ($textLines as $n => $line) {
-                    $this->write($columns[$c][1] + 1.5, $this->y + 4 + $n * 3.8, $line, $this->font, 8, self::INK);
+                    $this->write($columns[$c][1] + 1.5, $this->y + 4 + $n * 3.8, $line, $this->font, 8, $row['voided'] ? self::MUTED : self::INK);
                 }
             }
 
@@ -450,14 +467,52 @@ final class OdontogramPdfExport
         $this->y += 6.4;
     }
 
-    private function renderNotes(Odontogram $odontogram): void
+    /** Notas escritas en cada pieza (botón «N» del tablero). */
+    private function renderToothNotes(Odontogram $odontogram): void
     {
-        $this->sectionHeader('Notas', 16);
+        $notes = $odontogram->teeth()
+            ->whereNotNull('notes')
+            ->orderBy('fdi_code')
+            ->get()
+            ->filter(fn (OdontogramTooth $tooth): bool => trim((string) $tooth->notes) !== '');
 
-        foreach (explode("\n", (string) $odontogram->notes) as $paragraph) {
+        if ($notes->isEmpty()) {
+            return;
+        }
+
+        $this->sectionHeader('Notas por pieza', 12);
+
+        foreach ($notes as $tooth) {
+            $lines = $this->wrap(preg_replace('/\s+/u', ' ', (string) $tooth->notes), self::CONTENT_WIDTH - 14, $this->font, 9);
+
+            foreach ($lines as $n => $line) {
+                if ($this->ensureSpace(5)) {
+                    $this->sectionHeader('Notas por pieza (continuación)', 10);
+                }
+
+                if ($n === 0) {
+                    $this->write(self::MARGIN, $this->y + 3.4, (string) $tooth->fdi_code, $this->boldFont, 9, self::ACCENT);
+                }
+
+                $this->write(self::MARGIN + 14, $this->y + 3.4, $line, $this->font, 9, self::INK);
+                $this->y += 4.6;
+            }
+
+            $this->y += 1.6;
+        }
+
+        $this->y += 3;
+    }
+
+    /** Sección de texto libre: Especificaciones (5.14) u Observaciones (5.15). */
+    private function renderParagraphs(string $title, string $text): void
+    {
+        $this->sectionHeader($title, 16);
+
+        foreach (explode("\n", $text) as $paragraph) {
             foreach ($this->wrap(trim($paragraph), self::CONTENT_WIDTH, $this->font, 9) as $line) {
                 if ($this->ensureSpace(5)) {
-                    $this->sectionHeader('Notas (continuación)', 10);
+                    $this->sectionHeader("{$title} (continuación)", 10);
                 }
 
                 $this->write(self::MARGIN, $this->y + 3.4, $line, $this->font, 9, self::INK);

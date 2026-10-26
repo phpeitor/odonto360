@@ -2,14 +2,18 @@
 
 namespace App\Livewire;
 
+use App\Domain\Odontogram\DentitionLayout;
 use App\Domain\Odontogram\ToothNumbering;
 use App\Domain\Odontogram\ToothSvgBuilder;
+use App\Domain\Odontogram\ZoneState;
 use App\Models\Odontogram;
 use App\Models\OdontogramTooth;
 use App\Models\OdontogramToothFace;
+use App\Models\OdontogramToothFinding;
 use App\Models\Patient;
 use App\Models\ToothCondition;
 use App\Models\ToothDefinition;
+use Filament\Notifications\Notification;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -32,13 +36,18 @@ class OdontogramBoard extends Component
 
     public ?string $activeCondition = null;
 
-    public string $saveMessage = '';
+    /** Sigla y estado (bueno/malo) con los que se registra la condición activa. */
+    public ?string $activeAbbreviation = null;
 
+    public ?string $activeState = null;
+
+    /** Observaciones del odontograma (NTS 188, 5.15). */
     public ?string $notes = null;
 
-    public ?string $examinedAt = null;
+    /** Especificaciones: hallazgos o características que no entran en los recuadros (NTS 188, 5.14). */
+    public ?string $specifications = null;
 
-    protected $listeners = ['clearSaveMessage'];
+    public ?string $examinedAt = null;
 
     /** Cambios pendientes de marcar en el tablero que aún no se han persistido (ver `save`). */
     public array $pending = [];
@@ -62,7 +71,7 @@ class OdontogramBoard extends Component
     public function mount(Patient $patient): void
     {
         $this->patient = $patient;
-        $this->dentition = $patient->allowsDentition('adult') ? 'adult' : 'child';
+        $this->dentition = $patient->defaultDentition();
 
         // Cada paciente tiene un único odontograma sobre el que se registra cada tratamiento.
         try {
@@ -78,6 +87,7 @@ class OdontogramBoard extends Component
         $this->dentition = $this->odontogram->dentition;
         $this->numberingSystem = $this->odontogram->numbering_system;
         $this->notes = $this->odontogram->notes;
+        $this->specifications = $this->odontogram->specifications;
         $this->examinedAt = $this->odontogram->examined_at?->format('Y-m-d') ?? now()->format('Y-m-d');
     }
 
@@ -93,14 +103,28 @@ class OdontogramBoard extends Component
         return $this->conditions->keyBy('code');
     }
 
+    /** Paleta agrupada por categoría (patología, restauraciones, anomalías…). */
     #[Computed]
-    public function definitions(): Collection
+    public function conditionGroups(): Collection
     {
-        return ToothDefinition::query()
-            ->where('dentition', $this->dentition)
-            ->orderBy('display_order')
-            ->get()
-            ->groupBy('arch'); // ['upper' => Collection, 'lower' => Collection]
+        return $this->conditions->groupBy('category');
+    }
+
+    #[Computed]
+    public function activeConditionModel(): ?ToothCondition
+    {
+        return $this->activeCondition ? ($this->conditionsByCode[$this->activeCondition] ?? null) : null;
+    }
+
+    /**
+     * Filas de piezas por arcada (en la mixta, dos filas por arcada).
+     *
+     * @return array{upper: list<Collection<int, ToothDefinition>>, lower: list<Collection<int, ToothDefinition>>}
+     */
+    #[Computed]
+    public function archRows(): array
+    {
+        return DentitionLayout::rows($this->dentition);
     }
 
     #[Computed]
@@ -108,45 +132,49 @@ class OdontogramBoard extends Component
     {
         return $this->odontogram
             ->teeth()
-            ->with(['wholeCondition', 'faces.condition'])
+            ->with(['faces.condition', 'findings.condition'])
             ->get()
             ->keyBy('fdi_code');
     }
 
+    /**
+     * Hallazgos actuales (BD + pendientes) para el listado bajo el odontograma.
+     *
+     * @return Collection<int, array{fdi_code: int, face: ?string, face_label: string, code: string, label: string, abbreviation: ?string, state: string, color: string}>
+     */
     #[Computed]
     public function findings(): Collection
     {
         $items = [];
 
-        foreach ($this->stagedToothStates() as $fdiCode => $state) {
-            if ($state['whole'] !== null && $state['whole'] !== ToothCondition::CODE_SANO) {
-                $condition = $this->conditionsByCode[$state['whole']] ?? null;
+        foreach ($this->stagedToothStates()->sortKeys() as $fdiCode => $state) {
+            $zones = [];
 
-                if ($condition) {
-                    $items[] = [
-                        'fdi_code' => $fdiCode,
-                        'label' => $condition->label,
-                        'color' => $condition->color,
-                        'face_label' => 'Pieza completa',
-                    ];
-                }
+            foreach ($state['findings'] as $code => $finding) {
+                $zones[] = [null, $code, $finding];
             }
 
-            foreach ($state['faces'] as $face => $code) {
-                if ($code === ToothCondition::CODE_SANO) {
+            foreach ($state['faces'] as $face => $finding) {
+                $zones[] = [$face, $finding['code'], $finding];
+            }
+
+            foreach ($zones as [$face, $code, $finding]) {
+                $condition = $this->conditionsByCode[$code] ?? null;
+
+                if (! $condition || $code === ToothCondition::CODE_SANO) {
                     continue;
                 }
 
-                $condition = $this->conditionsByCode[$code] ?? null;
-
-                if ($condition) {
-                    $items[] = [
-                        'fdi_code' => $fdiCode,
-                        'label' => $condition->label,
-                        'color' => $condition->color,
-                        'face_label' => $face,
-                    ];
-                }
+                $items[] = [
+                    'fdi_code' => $fdiCode,
+                    'face' => $face,
+                    'face_label' => $this->faceLabel($face),
+                    'code' => $code,
+                    'label' => $condition->label,
+                    'abbreviation' => $finding['abbreviation'],
+                    'state' => $finding['state'],
+                    'color' => ToothCondition::colorForState($finding['state']),
+                ];
             }
         }
 
@@ -158,8 +186,9 @@ class OdontogramBoard extends Component
     {
         $entries = $this->odontogram
             ->treatmentLog()
-            ->with(['condition', 'user'])
+            ->with(['condition', 'user', 'voidedBy'])
             ->orderByDesc('registered_at')
+            ->orderByDesc('id')
             ->get();
 
         foreach ($this->pending as $action) {
@@ -170,7 +199,11 @@ class OdontogramBoard extends Component
             $entries->prepend((object) [
                 'fdi_code' => $action['fdi_code'],
                 'face' => $action['face'],
+                'action' => $action['action'],
+                'voided_at' => null,
                 'condition' => $condition,
+                'abbreviation' => $action['abbreviation'],
+                'state' => $action['state'],
                 'observation' => $action['observation'],
                 'user' => Auth::user(),
                 'registered_at' => now(),
@@ -181,10 +214,37 @@ class OdontogramBoard extends Component
         return $entries;
     }
 
-    /** Selecciona una condición de la paleta (equivalente a `active` en el Alpine original). */
+    /** Selecciona una condición de la paleta, con su primera sigla y su estado por defecto. */
     public function pickCondition(string $code): void
     {
-        $this->activeCondition = $this->activeCondition === $code ? null : $code;
+        $condition = $this->conditionsByCode[$code] ?? null;
+
+        if ($condition === null || $this->activeCondition === $code) {
+            $this->activeCondition = null;
+            $this->activeAbbreviation = null;
+            $this->activeState = null;
+
+            return;
+        }
+
+        $this->activeCondition = $code;
+        $this->activeAbbreviation = $condition->abbreviationOptions()[0] ?? null;
+        $this->activeState = $condition->defaultState();
+    }
+
+    public function pickAbbreviation(string $abbreviation): void
+    {
+        if ($this->activeConditionModel?->allowsAbbreviation($abbreviation)) {
+            $this->activeAbbreviation = $abbreviation;
+        }
+    }
+
+    /** Buen estado (azul) o mal estado (rojo), solo si la condición admite ambos. */
+    public function pickState(string $state): void
+    {
+        if ($this->activeConditionModel?->allowsState($state)) {
+            $this->activeState = $state;
+        }
     }
 
     /**
@@ -192,48 +252,95 @@ class OdontogramBoard extends Component
      * $face === 'numero' => pieza completa (equivalente al click en el número).
      *
      * El marcado se acumula en `pending` y solo se persiste al pulsar "Guardar":
-     * - Zona sin tratar: encola la aplicación de la condición.
-     * - Zona ya tratada: no se re-marca; se abre el modal para agregar una observación.
-     * - Condición 'sano': encola el borrado de la zona.
+     * - Cara sin hallazgo o pieza sin esa condición: encola la aplicación.
+     * - Zona ya registrada: no se re-marca; se abre el modal para agregar una observación.
+     * - Condición 'sano': encola el borrado de la cara, o de todos los hallazgos de la pieza
+     *   si se hace clic en el número.
      */
     public function selectZone(int $fdiCode, string $face): void
     {
-        if (! $this->activeCondition) {
+        $condition = $this->activeConditionModel;
+
+        if (! $condition) {
             return;
         }
 
-        $condition = ToothCondition::where('code', $this->activeCondition)->firstOrFail();
         $zoneFace = $face === 'numero' ? null : $face;
 
-        // Las condiciones de pieza completa (extracción, corona, endodoncia…) aplican
+        // Las condiciones de pieza completa (corona, ausente, movilidad…) aplican
         // aunque el clic se haga sobre el cuerpo del diente en vez del número.
         if ($zoneFace !== null && $condition->appliesToTooth() && ! $condition->appliesToFace()) {
             $zoneFace = null;
         }
 
-        $currentConditionCode = $this->stagedZoneCondition($fdiCode, $zoneFace);
+        $state = $this->stagedToothStates()->get($fdiCode, ['faces' => [], 'findings' => []]);
 
         if ($condition->code === ToothCondition::CODE_SANO) {
-            if ($currentConditionCode !== null) {
-                $this->stage('clear', $fdiCode, $zoneFace, $currentConditionCode, null);
+            if ($zoneFace !== null) {
+                $this->stageClear($fdiCode, $zoneFace, $state['faces'][$zoneFace] ?? null);
+            } else {
+                foreach ($state['findings'] as $code => $finding) {
+                    $this->stageClear($fdiCode, null, ['code' => $code] + $finding);
+                }
             }
-        } elseif ($currentConditionCode !== null) {
-            $this->openObservation($fdiCode, $zoneFace, $currentConditionCode);
+        } elseif ($zoneFace !== null && isset($state['faces'][$zoneFace])) {
+            $this->openObservation($fdiCode, $zoneFace, $state['faces'][$zoneFace]['code']);
+        } elseif ($zoneFace === null && isset($state['findings'][$condition->code])) {
+            $this->openObservation($fdiCode, null, $condition->code);
         } elseif ($this->conditionAppliesToZone($condition, $zoneFace)) {
-            $this->stage('apply', $fdiCode, $zoneFace, $condition->code, null);
+            $this->stage(
+                'apply',
+                $fdiCode,
+                $zoneFace,
+                $condition->code,
+                $condition->allowsAbbreviation($this->activeAbbreviation) ? $this->activeAbbreviation : ($condition->abbreviationOptions()[0] ?? null),
+                $condition->allowsState($this->activeState) ? $this->activeState : $condition->defaultState(),
+            );
         }
 
         unset($this->findings, $this->history);
     }
 
-    /** Añade una acción a la cola de cambios pendientes (aún sin persistir). */
-    private function stage(string $action, int $fdiCode, ?string $face, ?string $conditionCode, ?string $observation): void
+    /** Quita un hallazgo desde el listado de hallazgos (encola su borrado). */
+    public function removeFinding(int $fdiCode, ?string $face, string $conditionCode): void
     {
+        $state = $this->stagedToothStates()->get($fdiCode);
+
+        $finding = $face === null
+            ? (isset($state['findings'][$conditionCode]) ? ['code' => $conditionCode] + $state['findings'][$conditionCode] : null)
+            : ($state['faces'][$face] ?? null);
+
+        if ($finding !== null && $finding['code'] === $conditionCode) {
+            $this->stageClear($fdiCode, $face, $finding);
+            unset($this->findings, $this->history);
+        }
+    }
+
+    /** @param array{code: string, abbreviation: ?string, state: string}|null $finding */
+    private function stageClear(int $fdiCode, ?string $face, ?array $finding): void
+    {
+        if ($finding !== null) {
+            $this->stage('clear', $fdiCode, $face, $finding['code'], $finding['abbreviation'], $finding['state']);
+        }
+    }
+
+    /** Añade una acción a la cola de cambios pendientes (aún sin persistir). */
+    private function stage(
+        string $action,
+        int $fdiCode,
+        ?string $face,
+        ?string $conditionCode,
+        ?string $abbreviation = null,
+        ?string $state = null,
+        ?string $observation = null,
+    ): void {
         $this->pending[] = [
             'fdi_code' => $fdiCode,
             'face' => $face,
             'action' => $action,
             'condition_code' => $conditionCode,
+            'abbreviation' => $abbreviation,
+            'state' => $state,
             'observation' => $observation,
         ];
     }
@@ -256,38 +363,43 @@ class OdontogramBoard extends Component
 
     /**
      * Estado actual (BD + cambios pendientes) de cada pieza, como mapa por código FDI:
-     * ['whole' => código|null, 'faces' => [cara => código]].
+     * - faces: un hallazgo por cara.
+     * - findings: hallazgos de pieza completa, por código de condición.
      *
-     * @return Collection<int, array{whole: string|null, faces: array<string, string>}>
+     * @return Collection<int, array{faces: array<string, array{code: string, abbreviation: ?string, state: string}>, findings: array<string, array{abbreviation: ?string, state: string}>}>
      */
     private function stagedToothStates(): Collection
     {
         $states = $this->teethByCode->mapWithKeys(function (OdontogramTooth $tooth) {
             return [$tooth->fdi_code => [
-                'whole' => $tooth->wholeCondition?->code,
-                'faces' => $tooth->faces->mapWithKeys(
-                    fn (OdontogramToothFace $face) => [$face->face => $face->condition?->code]
-                )->all(),
+                'faces' => $tooth->faces->mapWithKeys(fn (OdontogramToothFace $face) => [$face->face => [
+                    'code' => $face->condition->code,
+                    'abbreviation' => $face->abbreviation,
+                    'state' => $face->state ?? $face->condition->defaultState(),
+                ]])->all(),
+                'findings' => $tooth->findings->mapWithKeys(fn (OdontogramToothFinding $finding) => [$finding->condition->code => [
+                    'abbreviation' => $finding->abbreviation,
+                    'state' => $finding->state,
+                ]])->all(),
             ]];
         });
 
         foreach ($this->pending as $action) {
-            if (! $states->has($action['fdi_code'])) {
-                $states->put($action['fdi_code'], ['whole' => null, 'faces' => []]);
-            }
-
-            $state = $states->get($action['fdi_code']);
+            $state = $states->get($action['fdi_code'], ['faces' => [], 'findings' => []]);
             $face = $action['face'];
+            $code = $action['condition_code'];
 
             if ($action['action'] === 'apply') {
+                $finding = ['abbreviation' => $action['abbreviation'], 'state' => $action['state']];
+
                 if ($face === null) {
-                    $state['whole'] = $action['condition_code'];
+                    $state['findings'][$code] = $finding;
                 } else {
-                    $state['faces'][$face] = $action['condition_code'];
+                    $state['faces'][$face] = ['code' => $code] + $finding;
                 }
             } elseif ($action['action'] === 'clear') {
                 if ($face === null) {
-                    $state['whole'] = null;
+                    unset($state['findings'][$code]);
                 } else {
                     unset($state['faces'][$face]);
                 }
@@ -299,74 +411,55 @@ class OdontogramBoard extends Component
         return $states;
     }
 
-    /** Código de condición actual (BD + pendiente) de una zona; null si está sin tratar. */
-    private function stagedZoneCondition(int $fdiCode, ?string $face): ?string
-    {
-        $state = $this->stagedToothStates()->get($fdiCode);
-
-        if (! $state) {
-            return null;
-        }
-
-        return $face === null ? $state['whole'] : ($state['faces'][$face] ?? null);
-    }
-
     /** Devuelve false si la condición no aplica a esa zona (cara vs pieza completa). */
     private function conditionAppliesToZone(ToothCondition $condition, ?string $face): bool
     {
         return $face === null ? $condition->appliesToTooth() : $condition->appliesToFace();
     }
 
-    /** Persiste una acción pendiente sobre dientes/caras y la registra en la bitácora. */
+    /** Persiste una acción pendiente sobre caras/hallazgos de pieza y la registra en la bitácora. */
     private function applyPendingAction(array $action): void
     {
         $condition = $action['condition_code'] !== null
             ? ToothCondition::where('code', $action['condition_code'])->first()
             : null;
 
-        if ($action['action'] === 'apply') {
-            $this->applyToZone($action['fdi_code'], $action['face'], $condition);
-        } elseif ($action['action'] === 'clear') {
-            $this->clearZone($action['fdi_code'], $action['face']);
+        $fdiCode = $action['fdi_code'];
+        $face = $action['face'];
+
+        if ($face !== null) {
+            $previousConditionId = ZoneState::conditionId($this->odontogram, $fdiCode, $face);
+
+            if ($action['action'] === 'apply') {
+                ZoneState::set($this->odontogram, $fdiCode, $face, $condition, $action['abbreviation'], $action['state']);
+            } elseif ($action['action'] === 'clear') {
+                ZoneState::set($this->odontogram, $fdiCode, $face, null);
+            }
+        } else {
+            // En la pieza completa cada condición es su propia zona: antes de aplicarla no existía.
+            $previousConditionId = $condition && ZoneState::hasFinding($this->odontogram, $fdiCode, $condition->id)
+                ? $condition->id
+                : null;
+
+            if ($action['action'] === 'apply' && $condition) {
+                ZoneState::addFinding($this->odontogram, $fdiCode, $condition, $action['abbreviation'], $action['state']);
+            } elseif ($action['action'] === 'clear' && $condition) {
+                ZoneState::removeFinding($this->odontogram, $fdiCode, $condition->id);
+            }
         }
 
         $this->odontogram->treatmentLog()->create([
-            'fdi_code' => $action['fdi_code'],
-            'face' => $action['face'],
+            'fdi_code' => $fdiCode,
+            'face' => $face,
+            'action' => $action['action'],
             'condition_id' => $condition?->id,
+            'abbreviation' => $action['abbreviation'] ?? null,
+            'state' => $action['state'] ?? null,
+            'previous_condition_id' => $previousConditionId,
             'observation' => $action['observation'],
             'user_id' => Auth::id(),
             'registered_at' => now(),
         ]);
-    }
-
-    private function applyToZone(int $fdiCode, ?string $face, ToothCondition $condition): void
-    {
-        $tooth = $this->odontogram->teeth()->firstOrCreate(['fdi_code' => $fdiCode]);
-
-        if ($face === null) {
-            $tooth->update(['whole_condition_id' => $condition->id]);
-
-            return;
-        }
-
-        OdontogramToothFace::updateOrCreate(
-            ['odontogram_tooth_id' => $tooth->id, 'face' => $face],
-            ['condition_id' => $condition->id]
-        );
-    }
-
-    private function clearZone(int $fdiCode, ?string $face): void
-    {
-        $tooth = $this->odontogram->teeth()->firstOrCreate(['fdi_code' => $fdiCode]);
-
-        if ($face === null) {
-            $tooth->update(['whole_condition_id' => null]);
-
-            return;
-        }
-
-        $tooth->faces()->where('face', $face)->delete();
     }
 
     public function openObservation(int $fdiCode, ?string $face, ?string $conditionCode): void
@@ -389,7 +482,7 @@ class OdontogramBoard extends Component
             $this->observationFdiCode,
             $this->observationFace,
             $this->observationConditionCode,
-            trim($this->observationText)
+            observation: trim($this->observationText),
         );
 
         $this->resetObservationModal();
@@ -427,14 +520,14 @@ class OdontogramBoard extends Component
     public function setDentition(string $value): void
     {
         // El valor llega del cliente: solo se aceptan denticiones conocidas y permitidas por la edad
-        // (mayor de edad: solo adulta; menor de 6 años: solo infantil).
-        if (! $this->patient->allowsDentition($value)) {
+        // (mayor de edad: solo adulta; menor de 6 años: solo infantil; mixta de 6 a 17 años).
+        if (! in_array($value, DentitionLayout::DENTITIONS, true) || ! $this->patient->allowsDentition($value)) {
             return;
         }
 
         $this->dentition = $value;
         $this->odontogram->update(['dentition' => $value]);
-        unset($this->definitions, $this->teethByCode, $this->findings);
+        unset($this->archRows, $this->teethByCode, $this->findings);
     }
 
     public function setNumberingSystem(string $value): void
@@ -450,14 +543,14 @@ class OdontogramBoard extends Component
     /** Genera el SVG de una pieza (usado desde la vista, por cada diente del arco). */
     public function toothSvg(ToothDefinition $definition): string
     {
-        $state = $this->stagedToothStates()->get($definition->fdi_code);
+        $state = $this->stagedToothStates()->get($definition->fdi_code, ['faces' => [], 'findings' => []]);
+        $glyph = fn (string $code): ?string => $this->conditionsByCode->get($code)?->glyph;
 
         return ToothSvgBuilder::render(
             def: $definition,
-            shownNumber: ToothNumbering::display($definition->fdi_code, $this->dentition, $this->numberingSystem),
-            faceMap: ($state['faces'] ?? []) + OdontogramTooth::DEFAULT_FACE_MAP,
-            wholeCode: $state['whole'] ?? null,
-            conditionColors: $this->conditionsByCode->map->color->all(),
+            shownNumber: ToothNumbering::display($definition->fdi_code, $definition->dentition, $this->numberingSystem),
+            faces: array_map(fn (array $finding): array => $finding + ['glyph' => $glyph($finding['code'])], $state['faces']),
+            findings: collect($state['findings'])->map(fn (array $finding, string $code): array => $finding + ['glyph' => $glyph($code)])->all(),
             hasNote: $this->toothHasNote($definition->fdi_code),
         );
     }
@@ -465,7 +558,9 @@ class OdontogramBoard extends Component
     /** Persiste de forma atómica todos los cambios pendientes y registra la bitácora. */
     public function save(): void
     {
-        if (count($this->pending) > 0) {
+        $changes = count($this->pending);
+
+        if ($changes > 0) {
             DB::transaction(function (): void {
                 foreach ($this->pending as $action) {
                     $this->applyPendingAction($action);
@@ -476,19 +571,20 @@ class OdontogramBoard extends Component
         $this->pending = [];
         $this->odontogram->update([
             'notes' => $this->notes,
+            'specifications' => $this->specifications,
             'examined_at' => $this->examinedAt,
         ]);
         $this->odontogram->touch();
-        $this->saveMessage = 'Guardado ✓';
         $this->dispatch('odontogram-saved');
-        $this->dispatch('schedule-clear-save-message');
+
+        Notification::make()
+            ->title('Odontograma guardado')
+            ->body($changes > 0 ? "Se registraron {$changes} cambio(s) en el historial." : 'Especificaciones, observaciones y fecha de examen actualizadas.')
+            ->success()
+            ->duration(4000)
+            ->send();
 
         unset($this->teethByCode, $this->findings, $this->history);
-    }
-
-    public function clearSaveMessage(): void
-    {
-        $this->saveMessage = '';
     }
 
     public function openToothNote(int $fdiCode): void
@@ -507,6 +603,12 @@ class OdontogramBoard extends Component
 
         $tooth = $this->odontogram->teeth()->firstOrCreate(['fdi_code' => $this->toothNoteFdiCode]);
         $tooth->update(['notes' => trim($this->toothNoteText) ?: null]);
+
+        Notification::make()
+            ->title("Nota de la pieza {$this->toothNoteFdiCode} guardada")
+            ->success()
+            ->duration(3000)
+            ->send();
 
         $this->showToothNoteModal = false;
         $this->toothNoteFdiCode = null;

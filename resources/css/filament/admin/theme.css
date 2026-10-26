@@ -17,7 +17,7 @@
 .tooth-svg {
     display: block;
     width: clamp(40px, 6vw, 54px);
-    aspect-ratio: 100 / 180;
+    aspect-ratio: 100 / 228;
 }
 
 .tooth-svg .zone,

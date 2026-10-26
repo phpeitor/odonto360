@@ -7,6 +7,7 @@ use App\Models\OdontogramTooth;
 use App\Models\OdontogramToothFace;
 use App\Models\Patient;
 use App\Models\ToothCondition;
+use Database\Seeders\ToothDefinitionSeeder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
@@ -14,14 +15,20 @@ use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
-function makeCondition(string $code, string $label, string $target): ToothCondition
+beforeEach(function (): void {
+    // odontogram_teeth.fdi_code referencia a tooth_definitions.
+    $this->seed(ToothDefinitionSeeder::class);
+});
+
+function makeCondition(string $code, string $label, string $target, string $allowedStates = 'ambos', ?array $abbreviations = null): ToothCondition
 {
     return ToothCondition::create([
         'code' => $code,
         'label' => $label,
-        'color' => '#D6455A',
         'target' => $target,
         'category' => 'patologia',
+        'allowed_states' => $allowedStates,
+        'abbreviations' => $abbreviations,
         'sort_order' => 10,
     ]);
 }
@@ -136,59 +143,70 @@ it('borra una zona tratada con sano y lo registra en la bitácora', function ():
     $corona = makeCondition('corona', 'Corona', 'tooth');
     makeCondition('sano', 'Sano / Borrar', 'both');
 
-    $tooth = OdontogramTooth::create(['odontogram_id' => $odontogram->id, 'fdi_code' => 11, 'whole_condition_id' => $corona->id]);
+    $tooth = OdontogramTooth::create(['odontogram_id' => $odontogram->id, 'fdi_code' => 11]);
+    $tooth->findings()->create(['condition_id' => $corona->id, 'abbreviation' => 'CMC', 'state' => 'bueno']);
 
     $component = Livewire::test(OdontogramBoard::class, ['patient' => $patient]);
 
-    $component->set('activeCondition', 'sano')
+    $component->call('pickCondition', 'sano')
         ->call('selectZone', 11, 'numero');
 
     // El borrado queda pendiente hasta pulsar "Guardar".
-    expect($tooth->fresh()->whole_condition_id)->toBe($corona->id);
+    expect($tooth->findings()->count())->toBe(1);
     expect($odontogram->treatmentLog()->count())->toBe(0);
 
     $component->call('save');
 
-    expect($tooth->fresh()->whole_condition_id)->toBeNull();
+    expect($tooth->findings()->count())->toBe(0);
     expect($odontogram->treatmentLog()->count())->toBe(1);
-    expect($odontogram->treatmentLog()->first()->condition_id)->toBe($corona->id);
+
+    // El registro del borrado conserva la sigla y el estado de lo que se quitó.
+    $entry = $odontogram->treatmentLog()->first();
+    expect($entry->action)->toBe('clear')
+        ->and($entry->condition_id)->toBe($corona->id)
+        ->and($entry->abbreviation)->toBe('CMC')
+        ->and($entry->state)->toBe('bueno');
 });
 
 it('aplica una condición de pieza completa al clicar el cuerpo del diente', function (): void {
     $patient = Patient::create(['first_name' => 'Fabián', 'last_name' => 'Mendoza']);
     $odontogram = $patient->odontogram()->create(['dentition' => 'adult', 'numbering_system' => 'fdi']);
-    $extraccion = makeCondition('extraccion', 'Extracción indicada', 'tooth');
+    $ausente = makeCondition('ausente', 'Pieza ausente', 'tooth', 'bueno', ['DNE', 'DEX', 'DAO']);
 
     $component = Livewire::test(OdontogramBoard::class, ['patient' => $patient]);
 
-    $component->set('activeCondition', 'extraccion')
+    $component->call('pickCondition', 'ausente')
+        ->call('pickAbbreviation', 'DEX')
         ->call('selectZone', 11, 'v')
         ->call('save');
 
     $tooth = $odontogram->teeth()->where('fdi_code', 11)->first();
 
     expect($tooth)->not->toBeNull();
-    expect($tooth->whole_condition_id)->toBe($extraccion->id);
+    expect($tooth->findings()->where('condition_id', $ausente->id)->first())
+        ->abbreviation->toBe('DEX')
+        ->state->toBe('bueno');
     expect($tooth->faces()->count())->toBe(0);
     expect($odontogram->treatmentLog()->count())->toBe(1);
     expect($odontogram->treatmentLog()->first()->face)->toBeNull()
-        ->and($odontogram->treatmentLog()->first()->condition_id)->toBe($extraccion->id);
+        ->and($odontogram->treatmentLog()->first()->condition_id)->toBe($ausente->id);
 });
 
 it('abre el modal al re-clicar el cuerpo de una pieza ya tratada', function (): void {
     $patient = Patient::create(['first_name' => 'Gabriela', 'last_name' => 'Núñez']);
     $odontogram = $patient->odontogram()->create(['dentition' => 'adult', 'numbering_system' => 'fdi']);
-    $extraccion = makeCondition('extraccion', 'Extracción indicada', 'tooth');
-    OdontogramTooth::create(['odontogram_id' => $odontogram->id, 'fdi_code' => 11, 'whole_condition_id' => $extraccion->id]);
+    $ausente = makeCondition('ausente', 'Pieza ausente', 'tooth', 'bueno', ['DNE', 'DEX', 'DAO']);
+    $tooth = OdontogramTooth::create(['odontogram_id' => $odontogram->id, 'fdi_code' => 11]);
+    $tooth->findings()->create(['condition_id' => $ausente->id, 'abbreviation' => 'DAO', 'state' => 'bueno']);
 
     Livewire::test(OdontogramBoard::class, ['patient' => $patient])
-        ->set('activeCondition', 'extraccion')
+        ->call('pickCondition', 'ausente')
         ->call('selectZone', 11, 'v')
         ->assertSet('showObservationModal', true)
-        ->assertSet('observationConditionCode', 'extraccion');
+        ->assertSet('observationConditionCode', 'ausente');
 
     expect($odontogram->treatmentLog()->count())->toBe(0);
-    expect($odontogram->teeth()->where('fdi_code', 11)->first()->whole_condition_id)->toBe($extraccion->id);
+    expect($tooth->findings()->first()->abbreviation)->toBe('DAO');
 });
 
 it('deshace la última acción pendiente', function (): void {
@@ -201,7 +219,15 @@ it('deshace la última acción pendiente', function (): void {
 
     $component->set('activeCondition', 'caries')
         ->call('selectZone', 11, 'v')
-        ->assertSet('pending', [['fdi_code' => 11, 'face' => 'v', 'action' => 'apply', 'condition_code' => 'caries', 'observation' => null]]);
+        ->assertSet('pending', [[
+            'fdi_code' => 11,
+            'face' => 'v',
+            'action' => 'apply',
+            'condition_code' => 'caries',
+            'abbreviation' => null,
+            'state' => 'bueno',
+            'observation' => null,
+        ]]);
 
     $component->set('activeCondition', 'obturacion')
         ->call('selectZone', 12, 'o')
@@ -303,6 +329,5 @@ it('genera PDF sin errores', function (): void {
     $component = Livewire::test(OdontogramBoard::class, ['patient' => $patient]);
     $component->call('exportPdf');
 
-    // Assert the dispatch event was fired (download-pdf).
-    $component->assertDispatched('download-pdf');
+    $component->assertDispatched('open-pdf');
 });
