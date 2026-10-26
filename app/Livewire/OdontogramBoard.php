@@ -2,6 +2,7 @@
 
 namespace App\Livewire;
 
+use App\Domain\Odontogram\DentitionLayout;
 use App\Domain\Odontogram\ToothNumbering;
 use App\Domain\Odontogram\ToothSvgBuilder;
 use App\Domain\Odontogram\ZoneState;
@@ -60,7 +61,7 @@ class OdontogramBoard extends Component
     public function mount(Patient $patient): void
     {
         $this->patient = $patient;
-        $this->dentition = $patient->allowsDentition('adult') ? 'adult' : 'child';
+        $this->dentition = $patient->defaultDentition();
 
         // Cada paciente tiene un único odontograma sobre el que se registra cada tratamiento.
         try {
@@ -91,14 +92,15 @@ class OdontogramBoard extends Component
         return $this->conditions->keyBy('code');
     }
 
+    /**
+     * Filas de piezas por arcada (en la mixta, dos filas por arcada).
+     *
+     * @return array{upper: list<Collection<int, ToothDefinition>>, lower: list<Collection<int, ToothDefinition>>}
+     */
     #[Computed]
-    public function definitions(): Collection
+    public function archRows(): array
     {
-        return ToothDefinition::query()
-            ->where('dentition', $this->dentition)
-            ->orderBy('display_order')
-            ->get()
-            ->groupBy('arch'); // ['upper' => Collection, 'lower' => Collection]
+        return DentitionLayout::rows($this->dentition);
     }
 
     #[Computed]
@@ -403,14 +405,14 @@ class OdontogramBoard extends Component
     public function setDentition(string $value): void
     {
         // El valor llega del cliente: solo se aceptan denticiones conocidas y permitidas por la edad
-        // (mayor de edad: solo adulta; menor de 6 años: solo infantil).
-        if (! $this->patient->allowsDentition($value)) {
+        // (mayor de edad: solo adulta; menor de 6 años: solo infantil; mixta de 6 a 17 años).
+        if (! in_array($value, DentitionLayout::DENTITIONS, true) || ! $this->patient->allowsDentition($value)) {
             return;
         }
 
         $this->dentition = $value;
         $this->odontogram->update(['dentition' => $value]);
-        unset($this->definitions, $this->teethByCode, $this->findings);
+        unset($this->archRows, $this->teethByCode, $this->findings);
     }
 
     public function setNumberingSystem(string $value): void
@@ -430,7 +432,7 @@ class OdontogramBoard extends Component
 
         return ToothSvgBuilder::render(
             def: $definition,
-            shownNumber: ToothNumbering::display($definition->fdi_code, $this->dentition, $this->numberingSystem),
+            shownNumber: ToothNumbering::display($definition->fdi_code, $definition->dentition, $this->numberingSystem),
             faceMap: ($state['faces'] ?? []) + OdontogramTooth::DEFAULT_FACE_MAP,
             wholeCode: $state['whole'] ?? null,
             conditionColors: $this->conditionsByCode->map->color->all(),

@@ -22,6 +22,16 @@ it('generates a one-page PDF for an odontogram without history', function (): vo
         ->and(preg_match_all('#/Type\s*/Page\b#', $pdf))->toBe(1);
 });
 
+it('generates a PDF for a mixed dentition odontogram', function (): void {
+    $odontogram = Patient::factory()->create()->odontogram()->create(['dentition' => 'mixed', 'numbering_system' => 'universal']);
+
+    $pdf = (new OdontogramPdfExport)->generate($odontogram);
+
+    // Las 4 filas y la leyenda caben en la primera hoja; sin historial, como mucho pasa a la segunda.
+    expect($pdf)->toStartWith('%PDF')
+        ->and(preg_match_all('#/Type\s*/Page\b#', $pdf))->toBeLessThanOrEqual(2);
+});
+
 it('flows long history and notes onto extra pages instead of overlapping', function (): void {
     $odontogram = Patient::factory()->create()->odontogram()->create([
         'dentition' => 'child',

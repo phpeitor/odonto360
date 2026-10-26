@@ -35,6 +35,8 @@ class Patient extends Model
 
     public const PERMANENT_TEETH_AGE = 6;
 
+    public const MIXED_DENTITION_MAX_AGE = 12;
+
     /** Mayor de edad (18 años cumplidos a hoy); sin fecha de nacimiento no se puede afirmar. */
     public function isAdult(): bool
     {
@@ -47,14 +49,32 @@ class Patient extends Model
         return $this->birth_date !== null && $this->birth_date->age < self::PERMANENT_TEETH_AGE;
     }
 
-    /** Denticiones que el paciente puede tener según su edad: `adult` (permanente) o `child` (temporal). */
+    /**
+     * Denticiones que el paciente puede tener según su edad: `adult` (permanente), `child` (temporal)
+     * o `mixed` (temporal + permanente, de 6 a 17 años).
+     */
     public function allowsDentition(string $dentition): bool
     {
         return match ($dentition) {
             'adult' => ! $this->isUnderPermanentTeethAge(),
             'child' => ! $this->isAdult(),
+            'mixed' => ! $this->isUnderPermanentTeethAge() && ! $this->isAdult(),
             default => false,
         };
+    }
+
+    /** Dentición con la que se abre un odontograma nuevo: infantil antes de los 6, mixta de 6 a 12 y adulta después. */
+    public function defaultDentition(): string
+    {
+        if ($this->isUnderPermanentTeethAge()) {
+            return 'child';
+        }
+
+        if ($this->birth_date !== null && $this->birth_date->age <= self::MIXED_DENTITION_MAX_AGE) {
+            return 'mixed';
+        }
+
+        return 'adult';
     }
 
     /** El odontograma único del paciente: todo tratamiento se registra sobre él. */

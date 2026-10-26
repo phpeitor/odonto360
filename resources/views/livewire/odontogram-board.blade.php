@@ -12,6 +12,7 @@
             <div class="inline-flex overflow-hidden rounded-lg border border-gray-300">
                 @foreach ([
                     'adult' => ['label' => 'Adulto · 32', 'blocked' => 'Paciente menor de 6 años: solo dentición infantil'],
+                    'mixed' => ['label' => 'Mixta · 52', 'blocked' => $patient->isAdult() ? 'Paciente mayor de edad: solo dentición adulta' : 'Paciente menor de 6 años: solo dentición infantil'],
                     'child' => ['label' => 'Niño · 20', 'blocked' => 'Paciente mayor de edad: solo dentición adulta'],
                 ] as $option => $meta)
                     @php($allowed = $patient->allowsDentition($option))
@@ -20,7 +21,7 @@
                             @disabled(! $allowed)
                             @class([
                                 'px-3 py-1.5 text-xs font-semibold transition-colors',
-                                'border-l border-gray-300' => $option === 'child',
+                                'border-l border-gray-300' => $option !== 'adult',
                                 'bg-primary-600 text-white' => $dentition === $option,
                                 'bg-white text-gray-700 hover:bg-gray-50' => $dentition !== $option && $allowed,
                                 'cursor-not-allowed bg-gray-100 text-gray-400' => ! $allowed && $dentition !== $option,
@@ -85,41 +86,34 @@
         @endforeach
     </div>
 
-    {{-- Arco superior --}}
-    <div class="flex justify-center overflow-x-auto px-2 pb-1 pt-3">
-        <div class="flex gap-1 sm:gap-2">
-            @foreach ($this->definitions['upper'] ?? [] as $definition)
-                <div class="tooth-wrap group relative">
-                    {!! $this->toothSvg($definition) !!}
-                    <button type="button"
-                        wire:click="openToothNote({{ $definition->fdi_code }})"
-                        class="absolute -top-1 -right-1 hidden h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[8px] font-bold text-white shadow group-hover:flex"
-                        x-tooltip="{ content: 'Nota del diente', theme: $store.theme }">N</button>
+    {{-- Arcos superior e inferior (en dentición mixta: permanente + temporal por arcada) --}}
+    @foreach (['upper', 'lower'] as $arch)
+        @if ($arch === 'lower')
+            <div class="flex items-center gap-3">
+                <div class="h-px flex-1 bg-gray-200"></div>
+                <span class="text-[10px] font-mono text-gray-400">LÍNEA MEDIA</span>
+                <div class="h-px flex-1 bg-gray-200"></div>
+            </div>
+        @endif
+
+        <div @class(['space-y-2', 'pb-1' => $arch === 'upper'])>
+            @foreach ($this->archRows[$arch] as $row)
+                <div class="flex justify-center overflow-x-auto px-2 pt-3">
+                    <div class="flex gap-1 sm:gap-2">
+                        @foreach ($row as $definition)
+                            <div class="tooth-wrap group relative">
+                                {!! $this->toothSvg($definition) !!}
+                                <button type="button"
+                                    wire:click="openToothNote({{ $definition->fdi_code }})"
+                                    class="absolute -top-1 -right-1 hidden h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[8px] font-bold text-white shadow group-hover:flex"
+                                    x-tooltip="{ content: 'Nota del diente', theme: $store.theme }">N</button>
+                            </div>
+                        @endforeach
+                    </div>
                 </div>
             @endforeach
         </div>
-    </div>
-
-    <div class="flex items-center gap-3">
-        <div class="h-px flex-1 bg-gray-200"></div>
-        <span class="text-[10px] font-mono text-gray-400">LÍNEA MEDIA</span>
-        <div class="h-px flex-1 bg-gray-200"></div>
-    </div>
-
-    {{-- Arco inferior --}}
-    <div class="flex justify-center overflow-x-auto px-2 pt-3">
-        <div class="flex gap-1 sm:gap-2">
-            @foreach ($this->definitions['lower'] ?? [] as $definition)
-                <div class="tooth-wrap group relative">
-                    {!! $this->toothSvg($definition) !!}
-                    <button type="button"
-                        wire:click="openToothNote({{ $definition->fdi_code }})"
-                        class="absolute -top-1 -right-1 hidden h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[8px] font-bold text-white shadow group-hover:flex"
-                        x-tooltip="{ content: 'Nota del diente', theme: $store.theme }">N</button>
-                </div>
-            @endforeach
-        </div>
-    </div>
+    @endforeach
 
     {{-- Hallazgos --}}
     <div class="rounded-xl border border-gray-200 bg-white">

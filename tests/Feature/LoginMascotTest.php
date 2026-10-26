@@ -62,3 +62,15 @@ it('does not show the default heading on the login page', function (): void {
         ->assertOk()
         ->assertDontSee('Entre a su cuenta');
 });
+
+it('lets a signed-in user into the panel outside the local environment', function (): void {
+    config()->set('app.env', 'production');
+
+    $this->actingAs(User::factory()->create())
+        ->get('/')
+        ->assertOk();
+
+    $this->actingAs(User::factory()->create())
+        ->get('/odontogram-board')
+        ->assertOk();
+});
