@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Domain\Odontogram;
 
 use App\Models\Odontogram;
+use App\Models\OdontogramSpan;
 use App\Models\OdontogramTooth;
 use App\Models\OdontogramToothFace;
 use App\Models\OdontogramToothFinding;
 use App\Models\Patient;
 use App\Models\ToothCondition;
+use App\Models\ToothDefinition;
 use DragonOfMercy\PhpPdf\Color;
 use DragonOfMercy\PhpPdf\Document;
 use DragonOfMercy\PhpPdf\Font;
@@ -206,6 +208,12 @@ final class OdontogramPdfExport
             ->keyBy('fdi_code');
 
         $rows = DentitionLayout::rows($odontogram->dentition);
+        $spanSegments = SpanLayout::segments($rows, $odontogram->spans()->with('condition')->get()->map(fn (OdontogramSpan $span): array => [
+            'glyph' => $span->condition->glyph,
+            'state' => $span->state,
+            'start' => $span->start_fdi_code,
+            'end' => $span->end_fdi_code,
+        ]));
         $toothWidth = $odontogram->dentition === 'mixed' ? self::MIXED_TOOTH_WIDTH : self::TOOTH_WIDTH;
         // Proporción del viewBox de ToothSvgBuilder (100 de ancho, con el recuadro de siglas).
         $toothHeight = $toothWidth * ToothSvgBuilder::VIEWBOX_HEIGHT / 100;
@@ -240,7 +248,7 @@ final class OdontogramPdfExport
                 }
 
                 $rowWidth = $row->count() * ($toothWidth + self::TOOTH_GAP) - self::TOOTH_GAP;
-                $this->renderArch($row, $teethByCode, $numberingSystem, (self::PAGE_WIDTH - $rowWidth) / 2, $this->y, $toothWidth, $toothHeight);
+                $this->renderArch($row, $teethByCode, $spanSegments, $numberingSystem, (self::PAGE_WIDTH - $rowWidth) / 2, $this->y, $toothWidth, $toothHeight);
                 $this->y += $toothHeight;
             }
 
@@ -248,38 +256,42 @@ final class OdontogramPdfExport
         }
     }
 
+    /** Dibuja una fila como una sola imagen, para que los hallazgos de varias piezas queden continuos. */
     private function renderArch(
         Collection $definitions,
         Collection $teethByCode,
+        array $spanSegments,
         string $numberingSystem,
         float $startX,
         float $y,
         float $toothWidth,
         float $toothHeight,
     ): void {
-        foreach ($definitions->values() as $i => $def) {
+        $teeth = $definitions->values()->map(function (ToothDefinition $def) use ($teethByCode, $spanSegments, $numberingSystem): array {
             $tooth = $teethByCode->get($def->fdi_code);
 
-            $svg = ToothSvgBuilder::render(
-                def: $def,
-                shownNumber: ToothNumbering::display($def->fdi_code, $def->dentition, $numberingSystem),
-                faces: $tooth?->faces->mapWithKeys(fn (OdontogramToothFace $face): array => [$face->face => [
+            return [
+                'def' => $def,
+                'shownNumber' => ToothNumbering::display($def->fdi_code, $def->dentition, $numberingSystem),
+                'faces' => $tooth?->faces->mapWithKeys(fn (OdontogramToothFace $face): array => [$face->face => [
                     'code' => $face->condition->code,
                     'abbreviation' => $face->abbreviation,
                     'state' => $face->state ?? $face->condition->defaultState(),
                     'glyph' => $face->condition->glyph,
                 ]])->all() ?? [],
-                findings: $tooth?->findings->mapWithKeys(fn (OdontogramToothFinding $finding): array => [$finding->condition->code => [
+                'findings' => $tooth?->findings->mapWithKeys(fn (OdontogramToothFinding $finding): array => [$finding->condition->code => [
                     'abbreviation' => $finding->abbreviation,
                     'state' => $finding->state,
                     'glyph' => $finding->condition->glyph,
                 ]])->all() ?? [],
-                interactive: false,
-            );
+                'spans' => $spanSegments[$def->fdi_code] ?? [],
+            ];
+        })->all();
 
-            $x = $startX + $i * ($toothWidth + self::TOOTH_GAP);
-            $this->page->image(Image::fromBytes($svg), $x, $y, $toothWidth, $toothHeight);
-        }
+        $svg = ToothSvgBuilder::renderRow($teeth, self::TOOTH_GAP / $toothWidth * 100);
+        $rowWidth = count($teeth) * ($toothWidth + self::TOOTH_GAP) - self::TOOTH_GAP;
+
+        $this->page->image(Image::fromBytes($svg), $startX, $y, $rowWidth, $toothHeight);
     }
 
     /** Leyenda de colores de la NTS N° 188-MINSA/DGIESP-2022 (5.13): solo azul y rojo. */
@@ -307,6 +319,16 @@ final class OdontogramPdfExport
         $findings = $this->collectFindings(
             $odontogram->teeth()->with(['faces.condition', 'findings.condition'])->orderBy('fdi_code')->get()
         );
+
+        foreach ($odontogram->spans()->with('condition')->orderBy('start_fdi_code')->get() as $span) {
+            $findings[] = [
+                'fdi' => "{$span->start_fdi_code}–{$span->end_fdi_code}",
+                'label' => $span->condition->label,
+                'abbreviation' => null,
+                'color' => ToothCondition::colorForState($span->state),
+                'face' => 'Varias piezas',
+            ];
+        }
 
         $this->sectionHeader('Hallazgos', 12);
 
@@ -348,7 +370,7 @@ final class OdontogramPdfExport
         $this->y += 5;
     }
 
-    /** @return list<array{fdi: int, label: string, abbreviation: ?string, color: string, face: string}> */
+    /** @return list<array{fdi: int|string, label: string, abbreviation: ?string, color: string, face: string}> */
     private function collectFindings(Collection $teeth): array
     {
         $findings = [];
@@ -408,13 +430,15 @@ final class OdontogramPdfExport
 
         // Se miden todas las filas antes de dibujar para no dejar el encabezado huérfano.
         $rows = $log->map(function ($entry) use ($columns): array {
-            $faceLabel = $entry->face
-                ? (ToothCondition::FACE_LABELS[$entry->face] ?? $entry->face)
-                : 'Pieza completa';
+            $faceLabel = match (true) {
+                $entry->end_fdi_code !== null => 'Varias piezas',
+                $entry->face !== null => ToothCondition::FACE_LABELS[$entry->face] ?? $entry->face,
+                default => 'Pieza completa',
+            };
 
             $cells = [
                 $entry->registered_at->format('d/m/Y H:i'),
-                (string) $entry->fdi_code,
+                $entry->teethLabel(),
                 $faceLabel,
                 $entry->condition ? trim(($entry->abbreviation ? "{$entry->abbreviation} · " : '').$entry->condition->label) : '—',
                 $entry->user?->name ?? '—',

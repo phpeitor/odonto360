@@ -1,5 +1,8 @@
 <?php
 
+use App\Domain\Odontogram\DentitionLayout;
+use App\Domain\Odontogram\OdontogramPdfExport;
+use App\Domain\Odontogram\SpanLayout;
 use App\Domain\Odontogram\ToothSvgBuilder;
 use App\Domain\Odontogram\TreatmentVoider;
 use App\Livewire\OdontogramBoard;
@@ -22,10 +25,11 @@ beforeEach(function (): void {
     $this->patient = Patient::factory()->create(['birth_date' => '1991-02-03']);
 });
 
-it('siembra los 28 hallazgos de pieza y cara de la norma, solo en azul o rojo', function (): void {
+it('siembra los 38 hallazgos de la norma, solo en azul o rojo', function (): void {
     $findings = ToothCondition::where('code', '!=', ToothCondition::CODE_SANO)->get();
 
-    expect($findings)->toHaveCount(28)
+    expect($findings)->toHaveCount(38)
+        ->and($findings->where('target', 'span'))->toHaveCount(10)
         ->and($findings->pluck('color')->unique()->sort()->values()->all())
         ->toBe([ToothCondition::COLOR_GOOD, ToothCondition::COLOR_BAD])
         ->and(ToothCondition::where('code', 'caries')->first()->abbreviationOptions())->toBe(['MB', 'CE', 'CD', 'CDP'])
@@ -147,4 +151,96 @@ it('dibuja el recuadro de siglas con el color de cada estado', function (): void
         ->toMatch('/fill="'.ToothCondition::COLOR_BAD.'">CD<\/text>/')
         ->toMatch('/fill="'.ToothCondition::COLOR_GOOD.'">CMC<\/text>/')
         ->toContain('stroke="'.ToothCondition::COLOR_GOOD.'" stroke-width="5"');
+});
+
+it('marca una prótesis parcial fija de la pieza inicial a la final, en el orden de la fila', function (): void {
+    $component = Livewire::test(OdontogramBoard::class, ['patient' => $this->patient])
+        ->call('pickCondition', 'protesis_fija')
+        ->call('pickState', 'malo')
+        ->call('selectZone', 23, 'numero')
+        ->assertSet('spanStartFdi', 23)
+        ->call('selectZone', 13, 'v')
+        ->assertSet('spanStartFdi', null)
+        ->call('save');
+
+    $span = $this->patient->odontogram->spans()->first();
+    $entry = $this->patient->odontogram->treatmentLog()->first();
+
+    expect($span->only(['start_fdi_code', 'end_fdi_code', 'state']))->toBe(['start_fdi_code' => 13, 'end_fdi_code' => 23, 'state' => 'malo'])
+        ->and($entry->only(['fdi_code', 'end_fdi_code', 'action']))->toBe(['fdi_code' => 13, 'end_fdi_code' => 23, 'action' => 'apply'])
+        ->and($entry->teethLabel())->toBe('13–23');
+
+    $component->assertSee('13–23');
+});
+
+it('exige piezas contiguas para el diastema y la misma fila para las prótesis', function (): void {
+    Livewire::test(OdontogramBoard::class, ['patient' => $this->patient])
+        ->call('pickCondition', 'diastema')
+        ->call('selectZone', 11, 'numero')
+        ->call('selectZone', 22, 'numero')
+        ->assertSet('pending', [])
+        ->call('selectZone', 11, 'numero')
+        ->call('selectZone', 21, 'numero')
+        ->assertCount('pending', 1)
+        ->call('pickCondition', 'protesis_removible')
+        ->call('selectZone', 16, 'numero')
+        ->call('selectZone', 46, 'numero')
+        ->assertCount('pending', 1);
+});
+
+it('con un clic marca toda la fila como edéntulo total', function (): void {
+    Livewire::test(OdontogramBoard::class, ['patient' => $this->patient])
+        ->call('pickCondition', 'edentulo')
+        ->call('selectZone', 36, 'numero')
+        ->call('save');
+
+    expect($this->patient->odontogram->spans()->first()->only(['start_fdi_code', 'end_fdi_code']))
+        ->toBe(['start_fdi_code' => 48, 'end_fdi_code' => 38]);
+});
+
+it('quita un hallazgo de varias piezas y al anular el borrado lo restaura', function (): void {
+    $component = Livewire::test(OdontogramBoard::class, ['patient' => $this->patient])
+        ->call('pickCondition', 'ortodoncia_fija')
+        ->call('selectZone', 16, 'numero')
+        ->call('selectZone', 26, 'numero')
+        ->call('save');
+
+    $component->call('removeSpan', 'ortodoncia_fija', 16, 26)->call('save');
+
+    expect($this->patient->odontogram->spans()->count())->toBe(0);
+
+    $clear = $this->patient->odontogram->treatmentLog()->where('action', 'clear')->first();
+    (new TreatmentVoider)->void($clear, $this->user);
+
+    expect($this->patient->odontogram->spans()->first()->only(['start_fdi_code', 'end_fdi_code', 'state']))
+        ->toBe(['start_fdi_code' => 16, 'end_fdi_code' => 26, 'state' => 'bueno']);
+});
+
+it('reparte el hallazgo en tramos de inicio, medio y fin por pieza', function (): void {
+    $segments = SpanLayout::segments(DentitionLayout::rows('adult'), [
+        ['glyph' => 'protesis_fija', 'state' => 'bueno', 'start' => 13, 'end' => 11],
+        ['glyph' => 'diastema', 'state' => 'bueno', 'start' => 11, 'end' => 21],
+        // Piezas en filas distintas: no se dibuja.
+        ['glyph' => 'fusion', 'state' => 'bueno', 'start' => 11, 'end' => 41],
+    ]);
+
+    expect(array_column($segments[13], 'position'))->toBe(['start'])
+        ->and(array_column($segments[12], 'position'))->toBe(['middle'])
+        ->and(array_column($segments[11], 'position'))->toBe(['end', 'start'])
+        ->and(array_column($segments[21], 'glyph'))->toBe(['diastema'])
+        ->and($segments)->not->toHaveKey(41);
+});
+
+it('incluye los hallazgos de varias piezas en el PDF', function (): void {
+    $odontogram = $this->patient->odontogram()->create(['dentition' => 'adult', 'numbering_system' => 'fdi']);
+    $withoutSpans = (new OdontogramPdfExport)->generate($odontogram->load('patient'));
+
+    $odontogram->spans()->create([
+        'condition_id' => ToothCondition::where('code', 'protesis_completa')->value('id'),
+        'start_fdi_code' => 18,
+        'end_fdi_code' => 28,
+        'state' => 'bueno',
+    ]);
+
+    expect(strlen((new OdontogramPdfExport)->generate($odontogram->fresh()->load('patient'))))->toBeGreaterThan(strlen($withoutSpans));
 });

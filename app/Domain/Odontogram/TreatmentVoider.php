@@ -70,6 +70,16 @@ final class TreatmentVoider
             return;
         }
 
+        if ($entry->end_fdi_code !== null) {
+            if ($entry->action === 'apply') {
+                ZoneState::removeSpan($entry->odontogram, $entry->condition_id, $entry->fdi_code, $entry->end_fdi_code);
+            } elseif ($previous !== null) {
+                ZoneState::addSpan($entry->odontogram, $previous, $entry->fdi_code, $entry->end_fdi_code, $entry->state);
+            }
+
+            return;
+        }
+
         if ($entry->action === 'apply') {
             ZoneState::removeFinding($entry->odontogram, $entry->fdi_code, $entry->condition_id);
         } elseif ($previous !== null) {
@@ -77,7 +87,7 @@ final class TreatmentVoider
         }
     }
 
-    /** En la pieza completa cada condición es una zona propia (varios hallazgos por pieza). */
+    /** En la pieza completa cada condición es una zona propia, y cada tramo de piezas también. */
     private function hasNewerChange(OdontogramTreatmentLog $entry): bool
     {
         return OdontogramTreatmentLog::query()
@@ -85,7 +95,13 @@ final class TreatmentVoider
             ->where('fdi_code', $entry->fdi_code)
             ->when(
                 $entry->face === null,
-                fn ($query) => $query->whereNull('face')->where('condition_id', $entry->condition_id),
+                fn ($query) => $query->whereNull('face')
+                    ->where('condition_id', $entry->condition_id)
+                    ->when(
+                        $entry->end_fdi_code === null,
+                        fn ($query) => $query->whereNull('end_fdi_code'),
+                        fn ($query) => $query->where('end_fdi_code', $entry->end_fdi_code),
+                    ),
                 fn ($query) => $query->where('face', $entry->face),
             )
             ->whereIn('action', ['apply', 'clear'])

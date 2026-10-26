@@ -51,6 +51,7 @@ class ToothCondition extends Model
         'patologia' => 'Patología',
         'restauracion' => 'Restauraciones y tratamientos',
         'anomalia' => 'Anomalías y posición',
+        'varias' => 'Varias piezas',
     ];
 
     /** Etiquetas legibles de las caras dentales. */
@@ -103,6 +104,12 @@ class ToothCondition extends Model
     public function appliesToTooth(): bool
     {
         return in_array($this->target, ['tooth', 'both'], true);
+    }
+
+    /** Hallazgo que abarca varias piezas (prótesis, aparatos ortodónticos, diastema…). */
+    public function appliesToSpan(): bool
+    {
+        return $this->target === 'span';
     }
 
     /** @return list<string> Estados con los que se puede registrar el hallazgo. */

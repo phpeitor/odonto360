@@ -35,6 +35,7 @@ class ToothConditionsTable
                         'face' => 'Cara',
                         'tooth' => 'Diente',
                         'both' => 'Ambos',
+                        'span' => 'Varias piezas',
                         default => $state,
                     })
                     ->badge(),

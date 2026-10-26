@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use App\Domain\Odontogram\DentitionLayout;
+use App\Domain\Odontogram\SpanLayout;
 use App\Domain\Odontogram\ToothNumbering;
 use App\Domain\Odontogram\ToothSvgBuilder;
 use App\Domain\Odontogram\ZoneState;
@@ -40,6 +41,9 @@ class OdontogramBoard extends Component
     public ?string $activeAbbreviation = null;
 
     public ?string $activeState = null;
+
+    /** Pieza inicial ya elegida de un hallazgo de varias piezas (falta la pieza final). */
+    public ?int $spanStartFdi = null;
 
     /** Observaciones del odontograma (NTS 188, 5.15). */
     public ?string $notes = null;
@@ -128,6 +132,12 @@ class OdontogramBoard extends Component
     }
 
     #[Computed]
+    public function savedSpans(): Collection
+    {
+        return $this->odontogram->spans()->with('condition')->get();
+    }
+
+    #[Computed]
     public function teethByCode(): Collection
     {
         return $this->odontogram
@@ -140,7 +150,7 @@ class OdontogramBoard extends Component
     /**
      * Hallazgos actuales (BD + pendientes) para el listado bajo el odontograma.
      *
-     * @return Collection<int, array{fdi_code: int, face: ?string, face_label: string, code: string, label: string, abbreviation: ?string, state: string, color: string}>
+     * @return Collection<int, array{fdi_code: int, end_fdi_code: ?int, teeth_label: string, face: ?string, face_label: string, code: string, label: string, abbreviation: ?string, state: string, color: string}>
      */
     #[Computed]
     public function findings(): Collection
@@ -167,6 +177,8 @@ class OdontogramBoard extends Component
 
                 $items[] = [
                     'fdi_code' => $fdiCode,
+                    'end_fdi_code' => null,
+                    'teeth_label' => (string) $fdiCode,
                     'face' => $face,
                     'face_label' => $this->faceLabel($face),
                     'code' => $code,
@@ -174,6 +186,25 @@ class OdontogramBoard extends Component
                     'abbreviation' => $finding['abbreviation'],
                     'state' => $finding['state'],
                     'color' => ToothCondition::colorForState($finding['state']),
+                ];
+            }
+        }
+
+        foreach ($this->stagedSpans() as $span) {
+            $condition = $this->conditionsByCode[$span['code']] ?? null;
+
+            if ($condition) {
+                $items[] = [
+                    'fdi_code' => $span['start'],
+                    'end_fdi_code' => $span['end'],
+                    'teeth_label' => "{$span['start']}–{$span['end']}",
+                    'face' => null,
+                    'face_label' => 'Varias piezas',
+                    'code' => $span['code'],
+                    'label' => $condition->label,
+                    'abbreviation' => null,
+                    'state' => $span['state'],
+                    'color' => ToothCondition::colorForState($span['state']),
                 ];
             }
         }
@@ -198,6 +229,7 @@ class OdontogramBoard extends Component
 
             $entries->prepend((object) [
                 'fdi_code' => $action['fdi_code'],
+                'end_fdi_code' => $action['end_fdi_code'] ?? null,
                 'face' => $action['face'],
                 'action' => $action['action'],
                 'voided_at' => null,
@@ -218,6 +250,7 @@ class OdontogramBoard extends Component
     public function pickCondition(string $code): void
     {
         $condition = $this->conditionsByCode[$code] ?? null;
+        $this->spanStartFdi = null;
 
         if ($condition === null || $this->activeCondition === $code) {
             $this->activeCondition = null;
@@ -265,6 +298,13 @@ class OdontogramBoard extends Component
             return;
         }
 
+        if ($condition->appliesToSpan()) {
+            $this->selectSpanTooth($condition, $fdiCode);
+            unset($this->findings, $this->history);
+
+            return;
+        }
+
         $zoneFace = $face === 'numero' ? null : $face;
 
         // Las condiciones de pieza completa (corona, ausente, movilidad…) aplican
@@ -301,6 +341,67 @@ class OdontogramBoard extends Component
         unset($this->findings, $this->history);
     }
 
+    /**
+     * Hallazgo de varias piezas: el primer clic fija la pieza inicial y el segundo la final
+     * (en la prótesis completa y el edéntulo total basta un clic: toma toda la fila).
+     */
+    private function selectSpanTooth(ToothCondition $condition, int $fdiCode): void
+    {
+        $kind = SpanLayout::kind($condition->glyph);
+
+        if ($kind !== 'arch' && $this->spanStartFdi === null) {
+            $this->spanStartFdi = $fdiCode;
+
+            return;
+        }
+
+        if ($kind !== 'arch' && $this->spanStartFdi === $fdiCode) {
+            $this->spanStartFdi = null;
+
+            return;
+        }
+
+        $range = SpanLayout::resolve($this->archRows, $condition->glyph, $kind === 'arch' ? $fdiCode : $this->spanStartFdi, $fdiCode);
+        $this->spanStartFdi = null;
+
+        if ($range === null) {
+            Notification::make()
+                ->title($kind === 'pair' ? 'Elige dos piezas contiguas de la misma fila' : 'Las piezas deben estar en la misma fila')
+                ->warning()
+                ->duration(4000)
+                ->send();
+
+            return;
+        }
+
+        [$start, $end] = $range;
+
+        if (isset($this->stagedSpans()["{$condition->code}:{$start}:{$end}"])) {
+            return;
+        }
+
+        $this->stage(
+            'apply',
+            $start,
+            null,
+            $condition->code,
+            null,
+            $condition->allowsState($this->activeState) ? $this->activeState : $condition->defaultState(),
+            endFdiCode: $end,
+        );
+    }
+
+    /** Quita un hallazgo de varias piezas desde el listado (encola su borrado). */
+    public function removeSpan(string $conditionCode, int $startFdiCode, int $endFdiCode): void
+    {
+        $span = $this->stagedSpans()["{$conditionCode}:{$startFdiCode}:{$endFdiCode}"] ?? null;
+
+        if ($span !== null) {
+            $this->stage('clear', $startFdiCode, null, $conditionCode, null, $span['state'], endFdiCode: $endFdiCode);
+            unset($this->findings, $this->history);
+        }
+    }
+
     /** Quita un hallazgo desde el listado de hallazgos (encola su borrado). */
     public function removeFinding(int $fdiCode, ?string $face, string $conditionCode): void
     {
@@ -333,9 +434,11 @@ class OdontogramBoard extends Component
         ?string $abbreviation = null,
         ?string $state = null,
         ?string $observation = null,
+        ?int $endFdiCode = null,
     ): void {
         $this->pending[] = [
             'fdi_code' => $fdiCode,
+            'end_fdi_code' => $endFdiCode,
             'face' => $face,
             'action' => $action,
             'condition_code' => $conditionCode,
@@ -385,6 +488,10 @@ class OdontogramBoard extends Component
         });
 
         foreach ($this->pending as $action) {
+            if (($action['end_fdi_code'] ?? null) !== null) {
+                continue;
+            }
+
             $state = $states->get($action['fdi_code'], ['faces' => [], 'findings' => []]);
             $face = $action['face'];
             $code = $action['condition_code'];
@@ -411,6 +518,46 @@ class OdontogramBoard extends Component
         return $states;
     }
 
+    /**
+     * Hallazgos de varias piezas actuales (BD + pendientes), por "código:inicio:fin".
+     *
+     * @return array<string, array{code: string, start: int, end: int, state: string}>
+     */
+    private function stagedSpans(): array
+    {
+        $spans = [];
+
+        foreach ($this->savedSpans as $span) {
+            $spans["{$span->condition->code}:{$span->start_fdi_code}:{$span->end_fdi_code}"] = [
+                'code' => $span->condition->code,
+                'start' => $span->start_fdi_code,
+                'end' => $span->end_fdi_code,
+                'state' => $span->state,
+            ];
+        }
+
+        foreach ($this->pending as $action) {
+            if (($action['end_fdi_code'] ?? null) === null) {
+                continue;
+            }
+
+            $key = "{$action['condition_code']}:{$action['fdi_code']}:{$action['end_fdi_code']}";
+
+            if ($action['action'] === 'apply') {
+                $spans[$key] = [
+                    'code' => $action['condition_code'],
+                    'start' => $action['fdi_code'],
+                    'end' => $action['end_fdi_code'],
+                    'state' => $action['state'],
+                ];
+            } elseif ($action['action'] === 'clear') {
+                unset($spans[$key]);
+            }
+        }
+
+        return $spans;
+    }
+
     /** Devuelve false si la condición no aplica a esa zona (cara vs pieza completa). */
     private function conditionAppliesToZone(ToothCondition $condition, ?string $face): bool
     {
@@ -425,9 +572,20 @@ class OdontogramBoard extends Component
             : null;
 
         $fdiCode = $action['fdi_code'];
+        $endFdiCode = $action['end_fdi_code'] ?? null;
         $face = $action['face'];
 
-        if ($face !== null) {
+        if ($endFdiCode !== null) {
+            $previousConditionId = $condition && ZoneState::hasSpan($this->odontogram, $condition->id, $fdiCode, $endFdiCode)
+                ? $condition->id
+                : null;
+
+            if ($action['action'] === 'apply' && $condition) {
+                ZoneState::addSpan($this->odontogram, $condition, $fdiCode, $endFdiCode, $action['state']);
+            } elseif ($action['action'] === 'clear' && $condition) {
+                ZoneState::removeSpan($this->odontogram, $condition->id, $fdiCode, $endFdiCode);
+            }
+        } elseif ($face !== null) {
             $previousConditionId = ZoneState::conditionId($this->odontogram, $fdiCode, $face);
 
             if ($action['action'] === 'apply') {
@@ -450,6 +608,7 @@ class OdontogramBoard extends Component
 
         $this->odontogram->treatmentLog()->create([
             'fdi_code' => $fdiCode,
+            'end_fdi_code' => $endFdiCode,
             'face' => $face,
             'action' => $action['action'],
             'condition_id' => $condition?->id,
@@ -527,6 +686,7 @@ class OdontogramBoard extends Component
 
         $this->dentition = $value;
         $this->odontogram->update(['dentition' => $value]);
+        $this->spanStartFdi = null;
         unset($this->archRows, $this->teethByCode, $this->findings);
     }
 
@@ -545,12 +705,17 @@ class OdontogramBoard extends Component
     {
         $state = $this->stagedToothStates()->get($definition->fdi_code, ['faces' => [], 'findings' => []]);
         $glyph = fn (string $code): ?string => $this->conditionsByCode->get($code)?->glyph;
+        $segments = SpanLayout::segments(
+            $this->archRows,
+            array_map(fn (array $span): array => $span + ['glyph' => $glyph($span['code'])], $this->stagedSpans())
+        );
 
         return ToothSvgBuilder::render(
             def: $definition,
             shownNumber: ToothNumbering::display($definition->fdi_code, $definition->dentition, $this->numberingSystem),
             faces: array_map(fn (array $finding): array => $finding + ['glyph' => $glyph($finding['code'])], $state['faces']),
             findings: collect($state['findings'])->map(fn (array $finding, string $code): array => $finding + ['glyph' => $glyph($code)])->all(),
+            spans: $segments[$definition->fdi_code] ?? [],
             hasNote: $this->toothHasNote($definition->fdi_code),
         );
     }
@@ -584,7 +749,7 @@ class OdontogramBoard extends Component
             ->duration(4000)
             ->send();
 
-        unset($this->teethByCode, $this->findings, $this->history);
+        unset($this->teethByCode, $this->savedSpans, $this->findings, $this->history);
     }
 
     public function openToothNote(int $fdiCode): void
