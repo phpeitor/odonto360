@@ -470,7 +470,7 @@ final class ToothSvgBuilder
             ),
             // 6.1.12: circunferencia encerrando el número de la pieza.
             'geminacion' => sprintf(
-                '<ellipse cx="50" cy="%s" rx="24" ry="13" fill="none" stroke="%s" stroke-width="3" pointer-events="none"/>',
+                '<ellipse cx="50" cy="%s" rx="29" ry="14" fill="none" stroke="%s" stroke-width="3" pointer-events="none"/>',
                 $l['numberY'],
                 $color
             ),
@@ -604,8 +604,8 @@ final class ToothSvgBuilder
         $ink = $interactive ? 'var(--ink)' : self::PDF_INK;
 
         $plate = sprintf(
-            '<rect x="34" y="%s" width="32" height="19" rx="9.5" fill="%s" stroke="%s" stroke-width="1"/>',
-            $numberY - 10,
+            '<rect x="27" y="%s" width="46" height="21" rx="10.5" fill="%s" stroke="%s" stroke-width="1"/>',
+            $numberY - 10.5,
             $surfaceAlt,
             $border
         );
@@ -613,7 +613,7 @@ final class ToothSvgBuilder
         if ($interactive) {
             return $plate.sprintf(
                 '<text x="50" y="%s" text-anchor="middle" dominant-baseline="middle" '
-                .'font-family="\'JetBrains Mono\',monospace" font-size="15" font-weight="700" fill="%s" '
+                .'font-family="\'JetBrains Mono\',monospace" font-size="17" font-weight="800" fill="%s" '
                 .'style="cursor:pointer" @click="$wire.selectZone(%d, \'numero\')" '
                 .'@mouseenter="hover = {code: %d, face: \'Pieza completa\'}" @mouseleave="hover = null">%s</text>',
                 $numberY + 0.5, $ink, $code, $code, e($shownNumber)
@@ -622,7 +622,7 @@ final class ToothSvgBuilder
 
         return $plate.sprintf(
             '<text x="50" y="%s" text-anchor="middle" dominant-baseline="middle" '
-            .'font-family="\'JetBrains Mono\',monospace" font-size="15" font-weight="700" fill="%s">%s</text>',
+            .'font-family="\'JetBrains Mono\',monospace" font-size="17" font-weight="800" fill="%s">%s</text>',
             $numberY + 0.5, $ink, e($shownNumber)
         );
     }

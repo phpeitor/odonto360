@@ -244,3 +244,16 @@ it('incluye los hallazgos de varias piezas en el PDF', function (): void {
 
     expect(strlen((new OdontogramPdfExport)->generate($odontogram->fresh()->load('patient'))))->toBeGreaterThan(strlen($withoutSpans));
 });
+
+it('muestra el número de pieza con colores definidos en el tema', function (): void {
+    $svg = ToothSvgBuilder::render(def: ToothDefinition::where('fdi_code', 16)->first(), shownNumber: '16');
+    $theme = file_get_contents(resource_path('css/filament/admin/theme.css'));
+
+    // El número usa --ink y --surface-alt: deben tener un color real (Filament no define --color-base-*).
+    expect($svg)->toContain('fill="var(--ink)" ')
+        ->toMatch('/>16<\/text>/')
+        ->and($theme)->toMatch('/--ink:\s*#[0-9a-f]{6};/i')
+        ->toMatch('/--surface-alt:\s*#[0-9a-f]{6};/i')
+        ->toMatch('/--border:\s*#[0-9a-f]{6};/i')
+        ->not->toContain('var(--color-base');
+});
