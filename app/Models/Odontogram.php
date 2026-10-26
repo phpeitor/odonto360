@@ -17,6 +17,7 @@ class Odontogram extends Model
         'dentition',
         'numbering_system',
         'notes',
+        'specifications',
         'examined_at',
     ];
 

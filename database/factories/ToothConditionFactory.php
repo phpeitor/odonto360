@@ -17,7 +17,10 @@ class ToothConditionFactory extends Factory
             'label' => fake()->word(),
             'color' => fake()->hexColor(),
             'target' => fake()->randomElement(['face', 'tooth', 'both']),
-            'category' => fake()->randomElement(['sano', 'patologia', 'restauracion', 'protesis', 'quirurgico']),
+            'category' => fake()->randomElement(['patologia', 'restauracion', 'anomalia']),
+            'allowed_states' => fake()->randomElement(['bueno', 'malo', 'ambos']),
+            'abbreviations' => null,
+            'glyph' => null,
             'sort_order' => fake()->numberBetween(1, 100),
         ];
     }

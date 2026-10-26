@@ -50,6 +50,15 @@ class OdontogramTooth extends Model
         );
     }
 
+    /** Hallazgos de pieza completa (varios por pieza, NTS 188 numeral 5.16). */
+    public function findings(): HasMany
+    {
+        return $this->hasMany(
+            related: OdontogramToothFinding::class,
+            foreignKey: 'odontogram_tooth_id'
+        );
+    }
+
     /** Mapa cara => código de condición, ej. ['v' => 'caries', 'o' => 'sano', ...]. */
     public function faceMap(): array
     {

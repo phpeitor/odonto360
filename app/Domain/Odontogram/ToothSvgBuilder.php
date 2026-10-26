@@ -5,6 +5,12 @@ namespace App\Domain\Odontogram;
 use App\Models\ToothCondition;
 use App\Models\ToothDefinition;
 
+/**
+ * SVG de una pieza según el gráfico de la NTS N° 188-MINSA/DGIESP-2022:
+ * - Recuadro de siglas por encima (arcada superior) o por debajo (arcada inferior) de la pieza (5.12).
+ * - Hallazgos dibujados solo en azul (buen estado) o rojo (mal estado) (5.13).
+ * - Franja libre del lado oclusal para las flechas que van «fuera del gráfico» (extruida, intruida, giroversión).
+ */
 final class ToothSvgBuilder
 {
     /** Colores PDF estáticos (sustituyen las CSS variables del tema). */
@@ -14,84 +20,172 @@ final class ToothSvgBuilder
 
     private const PDF_BORDER = '#CBD5E1';
 
+    /** Alto del cuerpo de la pieza (número + raíz + corona), del recuadro de siglas y de la franja oclusal. */
+    private const BODY_HEIGHT = 180;
+
+    private const BOX_HEIGHT = 28;
+
+    private const GUTTER_HEIGHT = 16;
+
+    public const VIEWBOX_HEIGHT = self::BOX_HEIGHT + 4 + self::BODY_HEIGHT + self::GUTTER_HEIGHT;
+
     /**
      * @param  ToothDefinition  $def  Definición de la pieza (arco, tipo, nº raíces...).
      * @param  string  $shownNumber  Número/letra ya resuelto (FDI o Universal).
-     * @param  array<string,string>  $faceMap  ['v' => 'caries', 'o' => 'sano', ...].
-     * @param  string|null  $wholeCode  Código de condición de pieza completa (o null).
-     * @param  array<string,string>  $conditionColors  ['caries' => '#D6455A', ...].
+     * @param  array<string, array{code: string, abbreviation: ?string, state: string, glyph: ?string}>  $faces  Hallazgo de cada cara.
+     * @param  array<string, array{abbreviation: ?string, state: string, glyph: ?string}>  $findings  Hallazgos de pieza completa por código.
      * @param  bool  $interactive  Si false, omite Alpine directives y usa colores hardcoded (para PDF).
      */
     public static function render(
         ToothDefinition $def,
         string $shownNumber,
-        array $faceMap,
-        ?string $wholeCode,
-        array $conditionColors,
+        array $faces = [],
+        array $findings = [],
         bool $hasNote = false,
         bool $interactive = true,
     ): string {
         $code = $def->fdi_code;
         $isLower = $def->isLower();
 
-        $missing = $wholeCode === ToothCondition::CODE_AUSENTE;
-        $extraction = $wholeCode === ToothCondition::CODE_EXTRACCION;
-        $implant = $wholeCode === ToothCondition::CODE_IMPLANTE;
-        $crown = $wholeCode === ToothCondition::CODE_CORONA;
-        $endo = $wholeCode === ToothCondition::CODE_ENDODONCIA;
-        $bridge = $wholeCode === ToothCondition::CODE_PUENTE;
-
-        // Layout (viewBox 0 0 100 180) — idéntico al HTML original.
+        // Layout del cuerpo (viewBox 0 0 100 180), idéntico al HTML original.
         $crownTop = $isLower ? 0 : 88;
         $rootBaseY = $isLower ? $crownTop + 92 : $crownTop;
         $rootApexY = $isLower ? $crownTop + 92 + 62 : 26;
         $numberY = $isLower ? 169 : 15;
-        $bridgeY = $isLower ? 158 : 24;
         $uid = 't'.$code;
 
-        $rootPoly = self::buildRoots($def->root_count, $rootBaseY, $rootApexY, $uid, $endo, $interactive);
-
-        $defs = self::buildDefs($uid, $crownTop, $endo);
-
-        $crownContent = $implant
-            ? self::buildImplant($crownTop, $uid, $interactive)
-            : self::buildCrownFaces(
-                $code,
-                $crownTop,
-                $uid,
-                $faceMap,
-                $conditionColors,
-                $missing,
-                $crown,
-                $wholeCode,
-                $interactive,
-            );
-
-        $extractionMark = $extraction ? self::diagonalCross($crownTop, '#9C2B44') : '';
-        $missingMark = $missing ? self::diagonalCross($crownTop, '#5A6B78') : '';
-        $bridgeMark = $bridge
-            ? sprintf('<rect x="30" y="%d" width="40" height="4" rx="2" fill="#5B67C7"/>', $bridgeY)
-            : '';
-
-        $numberBlock = self::buildNumberBlock($code, $numberY, $shownNumber, $interactive);
+        $layout = [
+            'crownTop' => $crownTop,
+            'rootBaseY' => $rootBaseY,
+            'rootApexY' => $rootApexY,
+            'numberY' => $numberY,
+            // Borde oclusal y sentido «hacia afuera» de la pieza (hacia la franja oclusal).
+            'occlusalY' => $isLower ? 0 : self::BODY_HEIGHT,
+            'outward' => $isLower ? -1 : 1,
+        ];
 
         $ink = $interactive ? 'var(--ink)' : self::PDF_INK;
-        $noteIndicator = $hasNote
-            ? sprintf('<circle cx="88" cy="%d" r="4" fill="#F59E0B" stroke="%s" stroke-width="1"/>', $numberY + 0.5, $ink)
-            : '';
 
-        $crownOpacity = $missing ? '0.45' : '1';
-        $crownGroup = "<g opacity=\"{$crownOpacity}\">{$crownContent}{$extractionMark}{$missingMark}</g>";
-        $rootGroup = "<g opacity=\"{$crownOpacity}\">{$rootPoly}</g>";
+        $body = self::buildDefs($uid, $crownTop)
+            .self::buildNumberBlock($code, $numberY, $shownNumber, $interactive)
+            .self::buildRoots($def->root_count, $rootBaseY, $rootApexY, $uid, $interactive)
+            .self::buildCrownFaces($code, $crownTop, $uid, $faces, $interactive);
 
-        $svgBody = $defs.$numberBlock.$rootGroup.$crownGroup.$bridgeMark.$noteIndicator;
+        foreach ($findings as $finding) {
+            $body .= self::glyph($finding['glyph'] ?? null, ToothCondition::colorForState($finding['state']), $layout);
+        }
+
+        if ($hasNote) {
+            $body .= sprintf('<circle cx="88" cy="%d" r="4" fill="#F59E0B" stroke="%s" stroke-width="1"/>', $numberY + 0.5, $ink);
+        }
+
+        // Arcada superior: recuadro arriba y franja oclusal abajo; la inferior, al revés.
+        $bodyOffset = $isLower ? self::GUTTER_HEIGHT : self::BOX_HEIGHT + 4;
+        $boxY = $isLower ? self::GUTTER_HEIGHT + self::BODY_HEIGHT + 4 : 0;
+
+        $svgBody = sprintf('<g transform="translate(0,%d)">%s</g>', $bodyOffset, $body)
+            .self::buildAbbreviationBox($boxY, self::abbreviations($faces, $findings), $interactive);
 
         $class = $interactive ? ' class="tooth-svg"' : '';
 
-        return "<svg viewBox=\"0 0 100 180\"{$class} xmlns=\"http://www.w3.org/2000/svg\">{$svgBody}</svg>";
+        return sprintf(
+            '<svg viewBox="0 0 100 %d"%s xmlns="http://www.w3.org/2000/svg">%s</svg>',
+            self::VIEWBOX_HEIGHT,
+            $class,
+            $svgBody
+        );
     }
 
-    private static function buildRoots(int $nRoots, float $rootBaseY, float $rootApexY, string $uid, bool $endo, bool $interactive = true): string
+    /**
+     * Siglas del recuadro, sin repetir, con el color de su estado.
+     *
+     * @return list<array{text: string, color: string}>
+     */
+    private static function abbreviations(array $faces, array $findings): array
+    {
+        $items = [];
+
+        foreach ([...array_values($faces), ...array_values($findings)] as $finding) {
+            if (($finding['abbreviation'] ?? null) === null) {
+                continue;
+            }
+
+            $color = ToothCondition::colorForState($finding['state']);
+            $items[$finding['abbreviation'].$color] = ['text' => $finding['abbreviation'], 'color' => $color];
+        }
+
+        return array_values($items);
+    }
+
+    /** @param list<array{text: string, color: string}> $items */
+    private static function buildAbbreviationBox(float $y, array $items, bool $interactive): string
+    {
+        $border = $interactive ? 'var(--border)' : self::PDF_BORDER;
+        $box = sprintf(
+            '<rect x="3" y="%s" width="94" height="%d" rx="3" fill="none" stroke="%s" stroke-width="1.5"/>',
+            $y + 1,
+            self::BOX_HEIGHT - 2,
+            $border
+        );
+
+        if ($items === []) {
+            return $box;
+        }
+
+        // Texto monoespaciado: el ancho de cada sigla es predecible (≈0.6 em por carácter).
+        $chars = array_sum(array_map(fn (array $item): int => mb_strlen($item['text']), $items)) + count($items) - 1;
+        $fontSize = match (true) {
+            $chars <= 6 => 14,
+            $chars <= 9 => 11,
+            default => 9,
+        };
+        $charWidth = $fontSize * 0.6;
+        $maxChars = (int) floor(88 / $charWidth);
+
+        // Lo que no entra se resume con «+»; el detalle completo queda en el listado de hallazgos (5.14).
+        $visible = [];
+        $used = 0;
+
+        foreach ($items as $i => $item) {
+            $separator = $visible === [] ? 0 : 1;
+            $length = mb_strlen($item['text']) + $separator;
+            // Si quedan siglas por detrás, se reserva espacio para « +».
+            $limit = $i === count($items) - 1 ? $maxChars : $maxChars - 2;
+
+            if ($used + $length > $limit) {
+                $visible[] = ['text' => '+', 'color' => $item['color']];
+                $used += 1 + $separator;
+                break;
+            }
+
+            $visible[] = $item;
+            $used += $length;
+        }
+
+        $x = 50 - ($used * $charWidth) / 2;
+        $texts = '';
+
+        foreach ($visible as $i => $item) {
+            if ($i > 0) {
+                $x += $charWidth;
+            }
+
+            $texts .= sprintf(
+                '<text x="%s" y="%s" dominant-baseline="middle" font-family="\'JetBrains Mono\',monospace" '
+                .'font-size="%d" font-weight="700" fill="%s">%s</text>',
+                round($x, 1),
+                $y + self::BOX_HEIGHT / 2 + 0.5,
+                $fontSize,
+                $item['color'],
+                e($item['text'])
+            );
+            $x += mb_strlen($item['text']) * $charWidth;
+        }
+
+        return $box.$texts;
+    }
+
+    private static function buildRoots(int $nRoots, float $rootBaseY, float $rootApexY, string $uid, bool $interactive = true): string
     {
         $trunkY = $rootBaseY + ($rootApexY - $rootBaseY) * 0.20;
 
@@ -158,87 +252,72 @@ final class ToothSvgBuilder
         );
     }
 
-    private static function buildDefs(string $uid, float $crownTop, bool $endo): string
+    private static function buildDefs(string $uid, float $crownTop): string
     {
-        $rootGradTop = $endo ? '#A996E6' : '#FFFFFF';
-        $rootGradBottom = $endo ? '#6B4FC4' : '#DCE7E9';
-
         return <<<SVG
         <defs>
           <clipPath id="clip-{$uid}"><rect x="4" y="{$crownTop}" width="92" height="92" rx="20" ry="20"/></clipPath>
           <linearGradient id="rootgrad-{$uid}" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="{$rootGradTop}"/>
-            <stop offset="100%" stop-color="{$rootGradBottom}"/>
-          </linearGradient>
-          <linearGradient id="implgrad-{$uid}" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#57697D"/>
-            <stop offset="100%" stop-color="#2E3A48"/>
+            <stop offset="0%" stop-color="#FFFFFF"/>
+            <stop offset="100%" stop-color="#DCE7E9"/>
           </linearGradient>
         </defs>
         SVG;
     }
 
+    /** @param array<string, array{code: string, abbreviation: ?string, state: string, glyph: ?string}> $faces */
     private static function buildCrownFaces(
         int $code,
         float $crownTop,
         string $uid,
-        array $faceMap,
-        array $conditionColors,
-        bool $missing,
-        bool $crownRing,
-        ?string $wholeCode = null,
+        array $faces,
         bool $interactive = true,
     ): string {
         $divider = 'rgba(15,42,48,0.32)';
-        $fill = fn (string $face) => $faceMap[$face] === ToothCondition::CODE_SANO ? '#FFFFFF' : ($conditionColors[$faceMap[$face]] ?? '#FFFFFF');
 
-        $zone = function (string $face, string $points) use ($code, $crownTop, $divider, $fill, $interactive) {
+        // fill: superficie pintada; tint: pintada a media opacidad; outline: solo el contorno (restauración temporal).
+        $paint = function (string $face) use ($faces, $divider): string {
+            $finding = $faces[$face] ?? null;
+
+            if ($finding === null || $finding['code'] === ToothCondition::CODE_SANO) {
+                return sprintf('fill="#FFFFFF" stroke="%s" stroke-width="1"', $divider);
+            }
+
+            $color = ToothCondition::colorForState($finding['state']);
+
+            return match ($finding['glyph'] ?? 'fill') {
+                'outline' => sprintf('fill="#FFFFFF" stroke="%s" stroke-width="3.5" stroke-linejoin="round"', $color),
+                'tint' => sprintf('fill="%s" fill-opacity="0.4" stroke="%s" stroke-width="1"', $color, $divider),
+                default => sprintf('fill="%s" stroke="%s" stroke-width="1"', $color, $divider),
+            };
+        };
+
+        $zone = function (string $face, string $points) use ($code, $crownTop, $paint, $interactive) {
             $shifted = self::shift($points, $crownTop);
             $name = ToothCondition::FACE_LABELS[$face];
 
             if ($interactive) {
                 return sprintf(
-                    '<polygon class="zone" data-face="%s" points="%s" fill="%s" stroke="%s" stroke-width="1" x-tooltip="{ content: \'%s\', theme: $store.theme }" '
+                    '<polygon class="zone" data-face="%s" points="%s" %s x-tooltip="{ content: \'%s\', theme: $store.theme }" '
                     .'@click="$wire.selectZone(%d, \'%s\')" '
                     .'@mouseenter="hover = {code: %d, face: \'%s\'}" @mouseleave="hover = null"/>',
-                    $face, $shifted, $fill($face), $divider, e($name), $code, $face, $code, $name
+                    $face, $shifted, $paint($face), e($name), $code, $face, $code, $name
                 );
             }
 
-            return sprintf(
-                '<polygon points="%s" fill="%s" stroke="%s" stroke-width="1"/>',
-                $shifted, $fill($face), $divider
-            );
+            return sprintf('<polygon points="%s" %s/>', $shifted, $paint($face));
         };
 
-        // Tinte suave de toda la corona para condiciones de pieza completa
-        // (endodoncia, corona, puente…): hace visible el marcado más allá del número.
-        $tint = in_array($wholeCode, [ToothCondition::CODE_ENDODONCIA, ToothCondition::CODE_CORONA, ToothCondition::CODE_PUENTE], true)
-            ? ($conditionColors[$wholeCode] ?? null)
-            : null;
-        $tintRect = $tint
-            ? sprintf(
-                '<rect x="5" y="%s" width="90" height="90" rx="19" ry="19" fill="%s" fill-opacity="0.22" pointer-events="none"/>',
-                $crownTop + 6,
-                $tint
-            )
-            : '';
-
-        $ellipse = $missing ? '' : sprintf(
+        $ellipse = sprintf(
             '<ellipse cx="26" cy="%s" rx="14" ry="9" fill="#FFFFFF" opacity="0.22" pointer-events="none"/>',
             $crownTop + 20
         );
 
-        $outerRing = $crownRing ? sprintf(
-            '<rect x="1.5" y="%s" width="97" height="97" rx="22" ry="22" fill="none" stroke="#B8863A" stroke-width="4"/>',
-            $crownTop + 1.5
-        ) : '';
-
         $ink = $interactive ? 'var(--ink)' : self::PDF_INK;
 
         return sprintf(
-            '<g clip-path="url(#clip-%s)">%s%s%s%s%s%s%s</g>'
-            .'<rect x="4" y="%s" width="92" height="92" rx="20" ry="20" fill="none" stroke="%s" stroke-width="1.6"/>%s',
+            '<g clip-path="url(#clip-%s)">%s%s%s%s%s%s</g>'
+            .'<rect x="4" y="%s" width="92" height="92" rx="20" ry="20" fill="none" stroke="%s" stroke-width="1.6"/>',
             $uid,
             $zone('v', '6,6 94,6 50,50'),
             $zone('d', '94,6 94,94 50,50'),
@@ -246,39 +325,122 @@ final class ToothSvgBuilder
             $zone('m', '6,6 6,94 50,50'),
             $zone('o', '50,26 74,50 50,74 26,50'),
             $ellipse,
-            $tintRect,
             $crownTop + 4,
-            $ink,
-            $outerRing
+            $ink
         );
     }
 
-    private static function buildImplant(float $crownTop, string $uid, bool $interactive = true): string
+    /**
+     * Dibujo de un hallazgo de pieza completa (numerales 6.1.x de la norma). Los hallazgos que solo
+     * llevan sigla en el recuadro (implante, movilidad, macrodoncia…) no tienen dibujo.
+     *
+     * @param  array{crownTop: float, rootBaseY: float, rootApexY: float, numberY: float, occlusalY: float, outward: int}  $l
+     */
+    private static function glyph(?string $glyph, string $color, array $l): string
     {
-        $points = self::shift('50,8 88,29 88,71 50,92 12,71 12,29', $crownTop);
-        $ink = $interactive ? 'var(--ink)' : self::PDF_INK;
-
-        return sprintf(
-            '<polygon points="%s" fill="url(#implgrad-%s)" stroke="%s" stroke-width="1.5" stroke-linejoin="round"/>'
-            .'<line x1="50" y1="%s" x2="50" y2="%s" stroke="#AEB9C4" stroke-width="2"/>'
-            .'<line x1="26" y1="%s" x2="74" y2="%s" stroke="#AEB9C4" stroke-width="1.5"/>'
-            .'<line x1="22" y1="%s" x2="78" y2="%s" stroke="#AEB9C4" stroke-width="2"/>'
-            .'<line x1="26" y1="%s" x2="74" y2="%s" stroke="#AEB9C4" stroke-width="1.5"/>',
-            $points, $uid, $ink,
-            $crownTop + 15, $crownTop + 85,
-            $crownTop + 38, $crownTop + 38,
-            $crownTop + 50, $crownTop + 50,
-            $crownTop + 62, $crownTop + 62
+        $crownTop = $l['crownTop'];
+        $occlusal = $l['occlusalY'];
+        $out = $l['outward'];
+        $line = fn (float $x1, float $y1, float $x2, float $y2, float $width = 4.5): string => sprintf(
+            '<line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s" stroke-linecap="round" pointer-events="none"/>',
+            $x1, $y1, $x2, $y2, $color, $width
         );
+
+        return match ($glyph) {
+            // 6.1.3 / 6.1.4: cuadrado bordeando la corona.
+            'corona' => sprintf(
+                '<rect x="1.5" y="%s" width="97" height="97" rx="6" fill="none" stroke="%s" stroke-width="5" pointer-events="none"/>',
+                $crownTop + 1.5,
+                $color
+            ),
+            // 6.1.8: línea vertical en la raíz unida a un cuadrado en la corona.
+            'espigo' => $line(50, $l['rootBaseY'], 50, $l['rootBaseY'] + ($l['rootApexY'] - $l['rootBaseY']) * 0.65)
+                .sprintf(
+                    '<rect x="37" y="%s" width="26" height="26" fill="none" stroke="%s" stroke-width="4" pointer-events="none"/>',
+                    $crownTop + 37,
+                    $color
+                ),
+            // 6.1.37: línea recta vertical a lo largo de la raíz.
+            'conducto' => $line(50, $l['rootBaseY'], 50, $l['rootApexY'] - ($l['rootApexY'] - $l['rootBaseY']) * 0.06),
+            // 6.1.27: pulpa coronal pintada.
+            'pulpotomia' => sprintf(
+                '<rect x="34" y="%s" width="32" height="22" rx="3" fill="%s" pointer-events="none"/>',
+                $crownTop + 39,
+                $color
+            ),
+            // 6.1.10: línea sobre la corona.
+            'fractura' => $line(16, $crownTop + 14, 84, $crownTop + 78, 5),
+            // 6.1.20: aspa sobre toda la pieza.
+            'aspa' => (function () use ($line, $l, $crownTop): string {
+                $top = min($l['rootApexY'], $crownTop);
+                $bottom = max($l['rootApexY'], $crownTop + 92);
+
+                return $line(10, $top, 90, $bottom, 5).$line(90, $top, 10, $bottom, 5);
+            })(),
+            // 6.1.23: flecha en zigzag dirigida hacia el plano oclusal.
+            'erupcion' => (function () use ($color, $l, $out, $occlusal): string {
+                $start = $l['rootBaseY'] - $out * 30;
+                $end = $occlusal - $out * 10;
+                $step = ($end - $start) / 6;
+                $points = [];
+
+                for ($i = 0; $i <= 6; $i++) {
+                    $points[] = sprintf('%s,%s', $i === 6 ? 50 : ($i % 2 === 0 ? 40 : 60), round($start + $step * $i, 1));
+                }
+
+                return sprintf(
+                    '<path d="M%s" fill="none" stroke="%s" stroke-width="4" stroke-linejoin="round" pointer-events="none"/>',
+                    implode(' L', $points),
+                    $color
+                ).self::arrowHead(50, $end + $out * 6, $out, $color);
+            })(),
+            // 6.1.24: flecha fuera de la pieza, en sentido externo desde oclusal.
+            'extruida' => $line(50, $occlusal + $out * 2, 50, $occlusal + $out * 11, 3.5)
+                .self::arrowHead(50, $occlusal + $out * 15, $out, $color),
+            // 6.1.25: flecha fuera de la pieza, dirigida hacia oclusal.
+            'intruida' => $line(50, $occlusal + $out * 14, 50, $occlusal + $out * 6, 3.5)
+                .self::arrowHead(50, $occlusal + $out * 2, -$out, $color),
+            // 6.1.13: flecha curva a nivel de la zona oclusal.
+            'giroversion' => sprintf(
+                '<path d="M24,%s Q50,%s 72,%s" fill="none" stroke="%s" stroke-width="3.5" stroke-linecap="round" pointer-events="none"/>',
+                $occlusal + $out * 4,
+                $occlusal + $out * 18,
+                $occlusal + $out * 6,
+                $color
+            ).sprintf(
+                '<path d="M80,%s L68,%s L70,%s Z" fill="%s" pointer-events="none"/>',
+                $occlusal + $out * 3,
+                $occlusal + $out * 2,
+                $occlusal + $out * 12,
+                $color
+            ),
+            // 6.1.21: triángulo sobre la raíz.
+            'clavija' => sprintf(
+                '<path d="M50,%s L28,%s L72,%s Z" fill="none" stroke="%s" stroke-width="3.5" stroke-linejoin="round" pointer-events="none"/>',
+                $l['rootApexY'],
+                $l['rootApexY'] + $out * 34,
+                $l['rootApexY'] + $out * 34,
+                $color
+            ),
+            // 6.1.12: circunferencia encerrando el número de la pieza.
+            'geminacion' => sprintf(
+                '<ellipse cx="50" cy="%s" rx="24" ry="13" fill="none" stroke="%s" stroke-width="3" pointer-events="none"/>',
+                $l['numberY'],
+                $color
+            ),
+            default => '',
+        };
     }
 
-    private static function diagonalCross(float $crownTop, string $color): string
+    /** Punta de flecha con el vértice en (x, y), apuntando hacia abajo (+1) o hacia arriba (-1). */
+    private static function arrowHead(float $x, float $y, int $direction, string $color): string
     {
         return sprintf(
-            '<line x1="8" y1="%s" x2="92" y2="%s" stroke="%s" stroke-width="4" stroke-linecap="round"/>'
-            .'<line x1="92" y1="%s" x2="8" y2="%s" stroke="%s" stroke-width="4" stroke-linecap="round"/>',
-            $crownTop + 8, $crownTop + 92, $color,
-            $crownTop + 8, $crownTop + 92, $color
+            '<path d="M%s,%s L%s,%s L%s,%s Z" fill="%s" pointer-events="none"/>',
+            $x, $y,
+            $x - 6, $y - $direction * 8,
+            $x + 6, $y - $direction * 8,
+            $color
         );
     }
 

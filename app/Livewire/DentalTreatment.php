@@ -60,6 +60,10 @@ class DentalTreatment extends Component implements HasActions, HasSchemas, HasTa
                     ->sortable(),
                 TextColumn::make('condition.label')
                     ->label('Condición')
+                    ->description(fn (OdontogramTreatmentLog $record): ?string => collect([
+                        $record->abbreviation,
+                        $record->state ? ToothCondition::STATE_LABELS[$record->state] : null,
+                    ])->filter()->implode(' · ') ?: null)
                     ->sortable(),
                 TextColumn::make('observation')
                     ->label('Observación')

@@ -39,12 +39,7 @@ final class TreatmentVoider
                     throw new CannotVoidTreatment('Hay cambios posteriores en esta zona. Anúlalos primero, del más reciente al más antiguo.');
                 }
 
-                ZoneState::set(
-                    $entry->odontogram,
-                    $entry->fdi_code,
-                    $entry->face,
-                    $entry->previous_condition_id ? ToothCondition::find($entry->previous_condition_id) : null,
-                );
+                $this->revert($entry);
             }
 
             $entry->forceFill(['voided_at' => now(), 'voided_by' => $user->id])->save();
@@ -53,6 +48,36 @@ final class TreatmentVoider
         });
     }
 
+    /**
+     * Devuelve la zona a su estado anterior. En un borrado, la condición borrada es la anterior y
+     * el registro guarda su sigla y estado; una aplicación siempre parte de una zona sin hallazgo.
+     */
+    private function revert(OdontogramTreatmentLog $entry): void
+    {
+        $previous = $entry->previous_condition_id ? ToothCondition::find($entry->previous_condition_id) : null;
+        $restoresEntry = $previous !== null && $previous->id === $entry->condition_id;
+
+        if ($entry->face !== null) {
+            ZoneState::set(
+                $entry->odontogram,
+                $entry->fdi_code,
+                $entry->face,
+                $previous,
+                $restoresEntry ? $entry->abbreviation : null,
+                $restoresEntry ? $entry->state : null,
+            );
+
+            return;
+        }
+
+        if ($entry->action === 'apply') {
+            ZoneState::removeFinding($entry->odontogram, $entry->fdi_code, $entry->condition_id);
+        } elseif ($previous !== null) {
+            ZoneState::addFinding($entry->odontogram, $entry->fdi_code, $previous, $entry->abbreviation, $entry->state);
+        }
+    }
+
+    /** En la pieza completa cada condición es una zona propia (varios hallazgos por pieza). */
     private function hasNewerChange(OdontogramTreatmentLog $entry): bool
     {
         return OdontogramTreatmentLog::query()
@@ -60,7 +85,7 @@ final class TreatmentVoider
             ->where('fdi_code', $entry->fdi_code)
             ->when(
                 $entry->face === null,
-                fn ($query) => $query->whereNull('face'),
+                fn ($query) => $query->whereNull('face')->where('condition_id', $entry->condition_id),
                 fn ($query) => $query->where('face', $entry->face),
             )
             ->whereIn('action', ['apply', 'clear'])
