@@ -7,5 +7,5 @@
         role="img"
         aria-label="Mascota de Odonto360"
     ></canvas>
-    @vite('resources/js/login-rive.js')
+    @vite(['resources/js/login-rive.js', 'resources/js/login-form.js'])
 </div>

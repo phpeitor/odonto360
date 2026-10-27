@@ -102,3 +102,152 @@
     .fi-topbar-open-collapse-sidebar-btn .fi-icon,
     .fi-topbar-close-collapse-sidebar-btn .fi-icon { transition: none; transform: none !important; }
 }
+
+/*
+ * Login. Todo va bajo `body:has(form[data-login-form])` (el formulario lo marca `App\Filament\Pages\Auth\Login`)
+ * para no tocar el resto del panel. Los errores van en toast: el campo solo queda con el borde rojo.
+ */
+body:has(form[data-login-form]) {
+    background-color: #f8fafc;
+    background-image:
+        radial-gradient(40rem 28rem at 12% 8%, rgb(251 191 36 / 0.22), transparent 70%),
+        radial-gradient(36rem 30rem at 92% 92%, rgb(45 212 191 / 0.18), transparent 70%),
+        radial-gradient(rgb(15 23 42 / 0.06) 1px, transparent 1px);
+    background-size: auto, auto, 22px 22px;
+    background-attachment: fixed;
+
+    & .fi-simple-main {
+        @apply relative overflow-hidden rounded-3xl bg-white/85 shadow-xl shadow-slate-900/5 ring-1 ring-slate-900/5 backdrop-blur-xl max-sm:mx-4 max-sm:w-auto max-sm:py-8 sm:px-10;
+
+        &::before {
+            content: '';
+            @apply absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-teal-400;
+        }
+    }
+
+    & [data-tooth-login] canvas {
+        @apply -mb-2 h-36 w-36 sm:h-40 sm:w-40;
+    }
+
+    & .fi-simple-header-heading {
+        @apply text-2xl font-semibold tracking-tight text-slate-900;
+    }
+
+    & .fi-simple-header-subheading {
+        @apply text-sm text-slate-500;
+    }
+
+    & form[data-login-form] {
+        & .fi-fo-field-label-content {
+            @apply text-[0.8125rem] font-medium text-slate-700;
+        }
+
+        & .fi-input-wrp {
+            @apply rounded-xl bg-slate-50/70 shadow-none ring-slate-300/70 transition duration-200;
+
+            &:hover:not(.fi-invalid) {
+                @apply ring-slate-400/70;
+            }
+
+            &:focus-within:not(.fi-invalid) {
+                @apply bg-white ring-2 ring-primary-500 shadow-[0_0_0_4px_rgb(245_158_11_/_0.15)];
+            }
+
+            &.fi-invalid {
+                @apply bg-danger-50/70 ring-2 ring-danger-500 shadow-[0_0_0_4px_rgb(239_68_68_/_0.12)];
+                animation: login-field-shake 0.4s ease-in-out;
+
+                & .fi-input-wrp-prefix .fi-icon {
+                    @apply text-danger-500;
+                }
+            }
+
+            & .fi-input-wrp-prefix:not(.fi-inline) {
+                @apply border-e-0 pe-0;
+            }
+
+            & .fi-input-wrp-prefix .fi-icon {
+                @apply text-slate-400 transition-colors;
+            }
+
+            &:focus-within:not(.fi-invalid) .fi-input-wrp-prefix .fi-icon {
+                @apply text-primary-500;
+            }
+
+            & .fi-input-wrp-suffix {
+                @apply border-s-0;
+            }
+        }
+
+        & .fi-input {
+            @apply py-2.5 text-[0.9375rem] placeholder:text-slate-400;
+        }
+
+        /* El mensaje lo da el toast; se deja solo para lectores de pantalla. */
+        & .fi-fo-field-wrp-error-message {
+            @apply sr-only;
+        }
+
+        & .fi-checkbox-input {
+            @apply rounded-md;
+        }
+
+        & .fi-btn {
+            @apply h-11 rounded-xl text-[0.9375rem] font-semibold shadow-lg shadow-orange-500/25 transition duration-200;
+            background-image: linear-gradient(135deg, var(--color-amber-500), var(--color-orange-500));
+
+            &:hover:not(:disabled) {
+                @apply -translate-y-px shadow-xl shadow-orange-500/30;
+                background-image: linear-gradient(135deg, var(--color-amber-400), var(--color-orange-500));
+            }
+
+            &:active:not(:disabled) {
+                @apply translate-y-0;
+            }
+        }
+    }
+}
+
+:where(.dark) body:has(form[data-login-form]) {
+    background-color: #0b1120;
+    background-image:
+        radial-gradient(40rem 28rem at 12% 8%, rgb(245 158 11 / 0.14), transparent 70%),
+        radial-gradient(36rem 30rem at 92% 92%, rgb(20 184 166 / 0.12), transparent 70%),
+        radial-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px);
+
+    & .fi-simple-main {
+        @apply bg-slate-900/80 shadow-black/40 ring-white/10;
+    }
+
+    & .fi-simple-header-heading {
+        @apply text-white;
+    }
+
+    & .fi-simple-header-subheading,
+    & form[data-login-form] .fi-fo-field-label-content {
+        @apply text-slate-400;
+    }
+
+    & form[data-login-form] .fi-input-wrp {
+        @apply bg-white/5 ring-white/15;
+
+        &:focus-within:not(.fi-invalid) {
+            @apply bg-white/10;
+        }
+
+        &.fi-invalid {
+            @apply bg-danger-500/10;
+        }
+    }
+}
+
+@keyframes login-field-shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-5px); }
+    40%, 80% { transform: translateX(5px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body:has(form[data-login-form]) form[data-login-form] .fi-input-wrp.fi-invalid { animation: none; }
+    body:has(form[data-login-form]) form[data-login-form] .fi-btn { transition: none; transform: none !important; }
+}
