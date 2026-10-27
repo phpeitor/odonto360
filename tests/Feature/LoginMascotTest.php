@@ -57,10 +57,47 @@ it('renders the tooth mascot on the login page only', function (): void {
         ->assertDontSee('data-tooth-canvas', false);
 });
 
-it('does not show the default heading on the login page', function (): void {
+it('shows its own heading instead of the default one', function (): void {
     $this->get('/login')
         ->assertOk()
+        ->assertSee('Bienvenido de nuevo')
         ->assertDontSee('Entre a su cuenta');
+});
+
+it('turns off native browser validation so the server marks empty fields', function (): void {
+    $this->get('/login')
+        ->assertOk()
+        ->assertSee('novalidate', false)
+        ->assertSee('data-login-form', false);
+});
+
+it('marks empty fields and explains it in a toast', function (): void {
+    Livewire::test(Login::class)
+        ->fillForm(['email' => '', 'password' => ''])
+        ->call('authenticate')
+        ->assertHasFormErrors(['email' => 'required', 'password' => 'required'])
+        ->assertDispatched('login-failed')
+        ->assertNotified('Completa los campos marcados');
+
+    $this->assertGuest();
+});
+
+it('shows the wrong credentials message in a toast', function (): void {
+    $user = User::factory()->create(['password' => 'secreto-123']);
+
+    Livewire::test(Login::class)
+        ->fillForm(['email' => $user->email, 'password' => 'incorrecta'])
+        ->call('authenticate')
+        ->assertNotified('No pudimos iniciar sesión');
+});
+
+it('greets the user in a toast after signing in', function (): void {
+    $user = User::factory()->create(['name' => 'Ana', 'password' => 'secreto-123']);
+
+    Livewire::test(Login::class)
+        ->fillForm(['email' => $user->email, 'password' => 'secreto-123'])
+        ->call('authenticate')
+        ->assertNotified('¡Hola, Ana!');
 });
 
 it('lets a signed-in user into the panel outside the local environment', function (): void {
